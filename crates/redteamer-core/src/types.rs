@@ -1,0 +1,432 @@
+// crates/redteamer-core/src/types.rs
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// OWASP LLM Top 10
+// ---------------------------------------------------------------------------
+
+/// The OWASP Top 10 for Large Language Model Applications.
+///
+/// Every finding produced by the framework is traceable to exactly one of
+/// these categories, enabling standardized coverage reporting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OwaspCategory {
+    /// LLM01: Manipulating the model via crafted inputs.
+    PromptInjection,
+    /// LLM02: Leaking PII, credentials, or proprietary data.
+    SensitiveInformationDisclosure,
+    /// LLM03: Compromised dependencies, models, or fine-tuning data.
+    SupplyChain,
+    /// LLM04: Poisoned training or embedding data.
+    DataAndModelPoisoning,
+    /// LLM05: Trusting model output without validation downstream.
+    ImproperOutputHandling,
+    /// LLM06: Granting the model more permissions/actions than necessary.
+    ExcessiveAgency,
+    /// LLM07: Exposure of system prompt content.
+    SystemPromptLeakage,
+    /// LLM08: Weaknesses in RAG / vector store retrieval pipelines.
+    VectorAndEmbeddingWeaknesses,
+    /// LLM09: Confident but false model output (hallucination).
+    Misinformation,
+    /// LLM10: Resource exhaustion / denial-of-wallet style attacks.
+    UnboundedConsumption,
+}
+
+impl OwaspCategory {
+    /// Canonical human-readable name, e.g. `"Prompt Injection"`.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Self::PromptInjection => "Prompt Injection",
+            Self::SensitiveInformationDisclosure => "Sensitive Information Disclosure",
+            Self::SupplyChain => "Supply Chain",
+            Self::DataAndModelPoisoning => "Data and Model Poisoning",
+            Self::ImproperOutputHandling => "Improper Output Handling",
+            Self::ExcessiveAgency => "Excessive Agency",
+            Self::SystemPromptLeakage => "System Prompt Leakage",
+            Self::VectorAndEmbeddingWeaknesses => "Vector and Embedding Weaknesses",
+            Self::Misinformation => "Misinformation",
+            Self::UnboundedConsumption => "Unbounded Consumption",
+        }
+    }
+
+    /// Official OWASP identifier, e.g. `"LLM01"`.
+    #[must_use]
+    pub const fn id(&self) -> &'static str {
+        match self {
+            Self::PromptInjection => "LLM01",
+            Self::SensitiveInformationDisclosure => "LLM02",
+            Self::SupplyChain => "LLM03",
+            Self::DataAndModelPoisoning => "LLM04",
+            Self::ImproperOutputHandling => "LLM05",
+            Self::ExcessiveAgency => "LLM06",
+            Self::SystemPromptLeakage => "LLM07",
+            Self::VectorAndEmbeddingWeaknesses => "LLM08",
+            Self::Misinformation => "LLM09",
+            Self::UnboundedConsumption => "LLM10",
+        }
+    }
+
+    /// Static baseline severity in `[0.0, 10.0]`, used as a prior for risk
+    /// scoring before detector confidence is applied.
+    ///
+    /// These are framework defaults; they encode how much inherent damage a
+    /// successful exploit in this category typically causes.
+    #[must_use]
+    pub const fn impact_score(&self) -> f32 {
+        match self {
+            Self::PromptInjection => 8.5,
+            Self::SensitiveInformationDisclosure => 9.0,
+            Self::SupplyChain => 7.5,
+            Self::DataAndModelPoisoning => 8.0,
+            Self::ImproperOutputHandling => 7.0,
+            Self::ExcessiveAgency => 9.5,
+            Self::SystemPromptLeakage => 6.0,
+            Self::VectorAndEmbeddingWeaknesses => 6.5,
+            Self::Misinformation => 5.5,
+            Self::UnboundedConsumption => 5.0,
+        }
+    }
+}
+
+impl fmt::Display for OwaspCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({})", self.id(), self.name())
+    }
+}
+
+/// Associates an artifact (finding, attack record) with an OWASP category.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OwaspMapping {
+    /// The mapped category.
+    pub category: OwaspCategory,
+    /// Detector/probe confidence that this mapping applies, in `[0.0, 1.0]`.
+    pub relevance: f32,
+    /// Optional free-form justification (e.g., matched rule name).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
+}
+
+impl OwaspMapping {
+    #[must_use]
+    pub const fn new(category: OwaspCategory, relevance: f32) -> Self {
+        Self {
+            category,
+            relevance,
+            rationale: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_rationale(mut self, rationale: impl Into<String>) -> Self {
+        self.rationale = Some(rationale.into());
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Verdicts and findings
+// ---------------------------------------------------------------------------
+
+/// The outcome of evaluating a single attack against a target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    /// The attack succeeded; the target exhibited the probed weakness.
+    Vulnerable,
+    /// The target correctly resisted the attack.
+    Resistant,
+    /// Ambiguous outcome: partial leak, inconsistent behavior, or low
+    /// detector confidence.
+    Partial,
+    /// The probe could not be evaluated (transport error, refusal to
+    /// produce parseable output, rate limiting, etc.).
+    Error,
+}
+
+impl Verdict {
+    /// `true` if this verdict represents a confirmed or likely compromise.
+    #[must_use]
+    pub const fn is_vulnerable(&self) -> bool {
+        matches!(self, Self::Vulnerable)
+    }
+}
+
+impl fmt::Display for Verdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Vulnerable => "vulnerable",
+            Self::Resistant => "resistant",
+            Self::Partial => "partial",
+            Self::Error => "error",
+        };
+        f.write_str(s)
+    }
+}
+
+/// A CVSS-style vector string describing the exploitability of a finding.
+///
+/// # Example
+/// ```
+/// use redteamer_core::types::CvssVector;
+///
+/// let v = CvssVector::new("CVSS:3.1/AV:N/AC:L/PR:N/UI:N");
+/// assert_eq!(v.score(), 0.0); // stubbed until Phase 1, Week 2
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CvssVector {
+    /// Raw vector string, e.g. `"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N"`.
+    pub vector: String,
+}
+
+impl CvssVector {
+    #[must_use]
+    pub fn new(vector: impl Into<String>) -> Self {
+        Self {
+            vector: vector.into(),
+        }
+    }
+
+    /// Computes the base score from the vector components.
+    ///
+    /// TODO(Phase 1, Week 2): implement full CVSS v3.1 base-score
+    /// evaluation. For now this is a stub returning `0.0` so callers can
+    /// wire up plumbing without blocking on the scoring engine.
+    #[must_use]
+    pub fn score(&self) -> f32 {
+        let _ = &self.vector;
+        0.0
+    }
+
+    /// Severity band implied by [`CvssVector::score`].
+    ///
+    /// Returns `None` while scoring is stubbed at `0.0`.
+    #[must_use]
+    pub fn severity(&self) -> Option<Severity> {
+        Severity::from_score(self.score())
+    }
+}
+
+/// Qualitative severity bands aligned with CVSS qualitative ratings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    None,
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl Severity {
+    /// Maps a numeric score in `[0.0, 10.0]` onto a severity band.
+    #[must_use]
+    pub fn from_score(score: f32) -> Option<Self> {
+        if score <= 0.0 {
+            Some(Self::None)
+        } else if score < 4.0 {
+            Some(Self::Low)
+        } else if score < 7.0 {
+            Some(Self::Medium)
+        } else if score < 9.0 {
+            Some(Self::High)
+        } else if score <= 10.0 {
+            Some(Self::Critical)
+        } else {
+            None // out of domain
+        }
+    }
+}
+
+/// A single, reportable security observation about a target.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Finding {
+    /// Unique identifier for this finding.
+    pub id: Uuid,
+    /// Human-readable title, e.g. `"Direct prompt injection leaks system prompt"`.
+    pub title: String,
+    /// Detailed description including evidence summary.
+    pub description: String,
+    /// Overall verdict for the finding.
+    pub verdict: Verdict,
+    /// OWASP categories this finding maps to, with relevance weights.
+    pub owasp_mappings: Vec<OwaspMapping>,
+    /// Optional CVSS-style exploitability vector.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cvss: Option<CvssVector>,
+    /// Name of the detector that produced this finding.
+    pub detector_name: String,
+    /// Name of the probe that triggered the behavior.
+    pub probe_name: String,
+    /// When the finding was recorded.
+    pub recorded_at: DateTime<Utc>,
+    /// Identifiers of the [`AttackRecord`]s backing this finding.
+    pub evidence_ids: Vec<Uuid>,
+}
+
+impl Finding {
+    #[must_use]
+    pub fn new(
+        title: impl Into<String>,
+        description: impl Into<String>,
+        verdict: Verdict,
+        probe_name: impl Into<String>,
+        detector_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            title: title.into(),
+            description: description.into(),
+            verdict,
+            owasp_mappings: Vec::new(),
+            cvss: None,
+            detector_name: detector_name.into(),
+            probe_name: probe_name.into(),
+            recorded_at: Utc::now(),
+            evidence_ids: Vec::new(),
+        }
+    }
+
+    /// Highest impact among all OWASP mappings, or `0.0` if unmapped.
+    #[must_use]
+    pub fn max_impact(&self) -> f32 {
+        self.owasp_mappings
+            .iter()
+            .map(|m| m.category.impact_score() * m.relevance)
+            .fold(0.0_f32, f32::max)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Attacks
+// ---------------------------------------------------------------------------
+
+/// Transformations a probe can apply to a seed attack payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MutationType {
+    /// Seed payload used verbatim.
+    None,
+    /// Unicode homoglyph / lookalike character substitution.
+    CharacterSubstitution,
+    /// Synonym or paraphrase replacement.
+    WordSubstitution,
+    /// Payload wrapped in Base64 / hex / ROT13 encoding.
+    EncodingWrapper,
+    /// Payload framed as fiction, roleplay, or translation task.
+    ContextFraming,
+    /// Multi-turn escalation across conversational turns.
+    ConversationalEscalation,
+    /// Token-level perturbation (insertion, truncation, repetition).
+    TokenPerturbation,
+    /// Language switch (translate payload into another natural language).
+    LanguageSwitch,
+}
+
+impl MutationType {
+    /// All mutation types known to the framework, in canonical order.
+    pub const ALL: [Self; 8] = [
+        Self::None,
+        Self::CharacterSubstitution,
+        Self::WordSubstitution,
+        Self::EncodingWrapper,
+        Self::ContextFraming,
+        Self::ConversationalEscalation,
+        Self::TokenPerturbation,
+        Self::LanguageSwitch,
+    ];
+}
+
+impl fmt::Display for MutationType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::None => "none",
+            Self::CharacterSubstitution => "character_substitution",
+            Self::WordSubstitution => "word_substitution",
+            Self::EncodingWrapper => "encoding_wrapper",
+            Self::ContextFraming => "context_framing",
+            Self::ConversationalEscalation => "conversational_escalation",
+            Self::TokenPerturbation => "token_perturbation",
+            Self::LanguageSwitch => "language_switch",
+        };
+        f.write_str(s)
+    }
+}
+
+/// A complete audit-trail entry for one executed attack attempt.
+///
+/// This is the atomic unit of evidence: probes emit one record per
+/// (payload, mutation, turn) combination, and findings reference them by id.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttackRecord {
+    /// Unique identifier for this record.
+    pub id: Uuid,
+    /// Identifier of the campaign/session that produced this record.
+    pub session_id: Uuid,
+    /// Probe that generated the attack.
+    pub probe_name: String,
+    /// Mutation applied to the seed payload.
+    pub mutation_type: MutationType,
+    /// The exact prompt sent to the target (post-mutation).
+    pub prompt: String,
+    /// The raw response returned by the target adapter, if any.
+    #[serde(default)]
+    pub response: Option<String>,
+    /// Zero or more detector outcomes for `(prompt, response)`.
+    pub detections: Vec<DetectionOutcome>,
+    /// Final rolled-up verdict for this attempt.
+    pub verdict: Verdict,
+    /// Wall-clock timestamp of when the attempt was dispatched.
+    pub started_at: DateTime<Utc>,
+    /// Wall-clock timestamp of when the attempt completed.
+    pub completed_at: DateTime<Utc>,
+    /// Adapter-reported metadata (model name, token counts, latency...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+}
+
+impl AttackRecord {
+    #[must_use]
+    pub fn new(session_id: Uuid, probe_name: impl Into<String>, prompt: impl Into<String>) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4(),
+            session_id,
+            probe_name: probe_name.into(),
+            mutation_type: MutationType::None,
+            prompt: prompt.into(),
+            response: None,
+            detections: Vec::new(),
+            verdict: Verdict::Error,
+            started_at: now,
+            completed_at: now,
+            metadata: None,
+        }
+    }
+
+    /// Duration of the attempt in milliseconds.
+    #[must_use]
+    pub fn duration_ms(&self) -> i64 {
+        (self.completed_at - self.started_at).num_milliseconds()
+    }
+}
+
+/// Outcome of one detector run over a single response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetectionOutcome {
+    /// Name of the detector that ran.
+    pub detector_name: String,
+    /// Whether the detector matched malicious/vulnerable behavior.
+    pub matched: bool,
+    /// Confidence of the decision, in `[0.0, 1.0]`.
+    pub confidence: f32,
+    /// Short explanation, e.g. the matched rule or pattern.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
+}

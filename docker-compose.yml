@@ -1,0 +1,25 @@
+# docker-compose.yml
+# Local integration-testing environment for llm-redteamer.
+#
+# Usage:
+#   docker compose up -d
+#   docker compose exec ollama ollama pull llama3.2:1b   # small, weakly-guarded target
+#   ./target/debug/llm-redteamer scan --target ollama --probes all --format markdown
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: redteamer-target
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ollama-models:

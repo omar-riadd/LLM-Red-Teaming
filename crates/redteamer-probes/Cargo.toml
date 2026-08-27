@@ -1,0 +1,19 @@
+# crates/redteamer-probes/Cargo.toml
+
+[package]
+name = "redteamer-probes"
+description = "Built-in attack probe library for llm-redteamer (OWASP LLM Top 10)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+redteamer-core.workspace = true
+redteamer-payload.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+inventory.workspace = true
+chrono.workspace = true
+uuid.workspace = true

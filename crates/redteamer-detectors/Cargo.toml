@@ -1,0 +1,20 @@
+# crates/redteamer-detectors/Cargo.toml
+
+[package]
+name = "redteamer-detectors"
+description = "Vulnerability detectors (string, regex-set, semantic, LLM-judge) for llm-redteamer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+redteamer-core.workspace = true
+serde.workspace = true
+memchr.workspace = true
+regex.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+ort.workspace = true
+tokenizers.workspace = true

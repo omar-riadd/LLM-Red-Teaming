@@ -1,0 +1,114 @@
+// crates/redteamer-detectors/src/string_match.rs
+
+use async_trait::async_trait;
+use memchr::memmem;
+use redteamer_core::error::Result;
+use redteamer_core::traits::detector::Detector;
+use redteamer_core::types::DetectionOutcome;
+
+/// SIMD-accelerated multi-substring detector built on `memchr`'s
+/// `memmem` backend — the hot path for high-volume scans.
+///
+/// Matches when *any* needle occurs in the response. Case sensitivity is
+/// opt-in per detector; by default needles are matched against a
+/// lowercased copy of the response.
+#[derive(Debug, Clone)]
+pub struct StringMatchDetector {
+    name: String,
+    description: String,
+    /// Precompiled `memmem` finders over lowercased needles.
+    finders: Vec<memmem::Finder<'static>>,
+    /// Original needles (for rationale reporting).
+    needles: Vec<String>,
+    case_sensitive: bool,
+    confidence: f32,
+}
+
+impl StringMatchDetector {
+    /// Creates a case-insensitive substring detector.
+    ///
+    /// # Errors
+    /// Returns [`RedTeamerError::InvalidConfig`](redteamer_core::error::RedTeamerError)
+    /// if `needles` is empty.
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        needles: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self> {
+        Self::with_options(name, description, needles, false, 0.9)
+    }
+
+    /// Full-control constructor.
+    ///
+    /// # Errors
+    /// See [`StringMatchDetector::new`].
+    pub fn with_options(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        needles: impl IntoIterator<Item = impl Into<String>>,
+        case_sensitive: bool,
+        confidence: f32,
+    ) -> Result<Self> {
+        let needles: Vec<String> = needles.into_iter().map(Into::into).collect();
+        if needles.is_empty() {
+            return Err(redteamer_core::error::RedTeamerError::InvalidConfig(
+                "StringMatchDetector requires at least one needle".into(),
+            ));
+        }
+        let normalize =
+            |s: &str| if case_sensitive { s.to_owned() } else { s.to_lowercase() };
+        let finders = needles
+            .iter()
+            .map(|n| memmem::Finder::new(normalize(n).leak()))
+            .collect();
+
+        Ok(Self {
+            name: name.into(),
+            description: description.into(),
+            finders,
+            needles,
+            case_sensitive,
+            confidence,
+        })
+    }
+}
+
+#[async_trait]
+impl Detector for StringMatchDetector {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    async fn detect(&self, _prompt: &str, response: Option<&str>) -> Result<DetectionOutcome> {
+        let Some(response) = response else {
+            return Ok(DetectionOutcome {
+                detector_name: self.name.clone(),
+                matched: false,
+                confidence: 1.0,
+                rationale: Some("empty response".into()),
+            });
+        };
+
+        let hay = if self
+            .case_sensitive { response.to_owned() } else { response.to_lowercase() };
+
+        let hits: Vec<&str> = self
+            .finders
+            .iter()
+            .zip(&self.needles)
+            .filter(|(finder, _)| finder.find(hay.as_bytes()).is_some())
+            .map(|(_, needle)| needle.as_str())
+            .collect();
+
+        Ok(DetectionOutcome {
+            detector_name: self.name.clone(),
+            matched: !hits.is_empty(),
+            confidence: if hits.is_empty() { 1.0 } else { self.confidence },
+            rationale: (!hits.is_empty()).then(|| format!("matched: {}", hits.join(", "))),
+        })
+    }
+}

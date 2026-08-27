@@ -1,0 +1,23 @@
+# crates/redteamer-cli/Cargo.toml
+
+[package]
+name = "redteamer-cli"
+description = "Command-line entry point for llm-redteamer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "llm-redteamer"
+path = "src/main.rs"
+
+[dependencies]
+redteamer-core.workspace = true
+redteamer-adapters.workspace = true
+redteamer-detectors.workspace = true
+redteamer-probes = { path = "../redteamer-probes" }
+redteamer-orchestrator.workspace = true
+clap.workspace = true
+tokio.workspace = true
