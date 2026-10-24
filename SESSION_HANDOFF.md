@@ -24,8 +24,9 @@
 - **Workspace Path**: `/home/omar/Projects/LLM-Red-Teaming`
 - **GitHub Repository**: `https://github.com/omar-riadd/LLM-Red-Teaming`
 - **Branch**: `main`
-- **Latest Commit**: `490f338` — `feat(detectors): expand default semantic reference corpus to 52 calibrated phrases`
+- **Latest Commit**: `1527cf1` — `feat(adapters): implement Phase 23 Model Context Protocol (MCP) server attacks (FG4)`
 - **Previous Significant Commits**:
+  - `490f338` — `feat(detectors): expand default semantic reference corpus to 52 calibrated phrases`
   - `c29e5d1` — `feat(azure): send Ocp-Apim-Subscription-Key header for native APIM gateway support`
   - `29e7b84` — `fix(azure): support APIM enterprise routing, pre-specified api-version, and Entra ID bearer auth`
   - `44b5a64` — `feat: implement Phase 20 ephemeral canaries and dynamic CVSS calibration`
@@ -83,7 +84,7 @@ LLM-Red-Teaming/
 
 4. **`crates/redteamer-detectors`**:
    - `normalize.rs`: `normalize_response_variants` de-obfuscates zero-width characters, Base64 (>=16 chars), Hex (>=16 chars), and ROT13 before detector evaluation.
-   - `semantic.rs`: `SemanticDetector` using vendored ONNX model (`all-MiniLM-L6-v2`) via `ort = "=2.0.0-rc.13"`. Precomputes 35 reference embeddings at construction time for a 30x evaluation speedup.
+   - `semantic.rs`: `SemanticDetector` using vendored ONNX model (`all-MiniLM-L6-v2`) via `ort = "=2.0.0-rc.13"`. Precomputes 52 reference embeddings at construction time for a 30x evaluation speedup.
    - `llm_judge.rs`: Secondary LLM evaluator parsing JSON verdict fences.
    - `string_match.rs`, `regex_set.rs`, `lib.rs` (`CanaryDetector`, `LengthDetector`).
 
@@ -143,7 +144,7 @@ cargo fmt --all -- --check
 # 2. Strict static analysis (all warnings denied)
 cargo clippy --workspace --all-targets --offline -- -D warnings
 
-# 3. Comprehensive test suite (88 tests)
+# 3. Comprehensive test suite (92 tests)
 cargo test --workspace --offline
 
 # 4. Dependency and license audit
@@ -158,11 +159,11 @@ cargo run --offline -p redteamer-cli -- scan --target mock --format markdown
 ## 6. How to Resume in the New Session
 
 When starting the next session:
-1. Confirm that `git status` is clean and all 88 workspace tests pass.
+1. Confirm that `git status` is clean and all 92 workspace tests pass.
 2. Review `improve.md` section 4 for the future roadmap proposals (`FG1`–`FG5`):
    - **`FG1`**: Executive Document Exporters (DOCX / PDF).
    - **`FG2`**: Distributed Worker Pool / Multi-IP Rotation.
    - **`FG3`**: Real-Time Streaming Early Termination (SSE token scanning).
-   - **`FG4`**: Model Context Protocol (MCP) Server Attacks.
+   - **`FG4`**: Model Context Protocol (MCP) Server Attacks (Completed in Phase 23).
    - **`FG5`**: Automated DPO / RLHF Dataset Exporter (ShareGPT / Alpaca format).
 3. Ask the user which feature or roadmap item they would like to pursue next, or proceed with tagging and releasing `v0.4.0` / `v0.4.1`.
