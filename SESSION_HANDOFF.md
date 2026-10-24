@@ -24,7 +24,7 @@
 - **Workspace Path**: `/home/omar/Projects/LLM-Red-Teaming`
 - **GitHub Repository**: `https://github.com/omar-riadd/LLM-Red-Teaming`
 - **Branch**: `main`
-- **Latest Commit**: `9ecbdb6` — `feat(adapters,probes): cloud safety refusal mapping, ca bundle tls support, and embedded template verification`
+- **Latest Commit**: `5dbef0f` — `docs: document 0.4.0 and 0.4.1 release entries in CHANGELOG`
 - **Previous Significant Commits**:
   - `c29e5d1` — `feat(azure): send Ocp-Apim-Subscription-Key header for native APIM gateway support`
   - `29e7b84` — `fix(azure): support APIM enterprise routing, pre-specified api-version, and Entra ID bearer auth`
