@@ -70,6 +70,10 @@ pub struct ScanArgs {
     #[arg(long)]
     pub attacker_model: Option<String>,
 
+    /// Number of candidate branches to evaluate per turn in adaptive PAIR search (default 3).
+    #[arg(long, default_value_t = 3)]
+    pub attacker_branches: usize,
+
     /// Optional ONNX model path to enable `SemanticDetector` (or "builtin" for bundled all-MiniLM-L6-v2).
     #[arg(long)]
     pub semantic_model: Option<PathBuf>,
@@ -234,9 +238,9 @@ pub async fn run_scan(args: ScanArgs) -> Result<bool> {
         args.format
     );
 
-    let mut available_probes = probes::all_probes();
+    let mut available_probes = probes::all_probes_with_branches(args.attacker_branches);
     if let Some(dir) = &args.probes_dir {
-        let custom = probes::probes_from_dir(dir)?;
+        let custom = probes::probes_from_dir_with_branches(dir, Some(args.attacker_branches))?;
         available_probes.extend(custom);
     }
 

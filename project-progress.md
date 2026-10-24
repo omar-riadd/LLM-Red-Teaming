@@ -116,7 +116,7 @@
 - [x] **16.2** Upgraded `report.html.hbs` with dark mode toggle, client-side persistence, SVG severity doughnut chart, sortable findings and ASR tables, and collapsible `<details>` sections; added `crates/redteamer-reporters/tests/html_snapshot.rs`.
 
 ### Phase 17 — Stateful PAIR Attacker Loop (GA7)
-- [ ] **17.1** Replace stateless Crescendo with scored PAIR tree search (N=3 branches, judge scoring)
+- [x] **17.1** Implemented stateful PAIR (Prompt Automatic Iterative Refinement) tree search attacker loop with candidate branch generation (N=3 default, configurable via `--attacker-branches` or YAML `pair_branches`), temperature ramping, polarity-aware candidate scoring (`score_candidate`), winning branch commit to conversation history, and early exit on `Verdict::Vulnerable`. Added integration tests in `crates/redteamer-probes/tests/pair_loop.rs`. All 75 workspace tests passing.
 
 ### Phase 18 — Docker Image & Release Automation (GA13)
 - [ ] **18.1** `Dockerfile` (distroless) + `docker-compose.yml` for Ollama

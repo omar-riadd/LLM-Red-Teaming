@@ -82,6 +82,9 @@ pub struct ProbeTemplate {
     /// Maximum number of turns per adaptive evaluation objective (defaults to 3).
     #[serde(default = "default_max_adaptive_turns")]
     pub max_adaptive_turns: usize,
+    /// Number of candidate branches to explore in PAIR tree search (defaults to 3).
+    #[serde(default = "default_pair_branches")]
+    pub pair_branches: usize,
     /// Mutations applied to every single-turn seed.
     #[serde(default)]
     pub mutations: Vec<Mutation>,
@@ -97,6 +100,10 @@ const fn default_max_adaptive_turns() -> usize {
     3
 }
 
+const fn default_pair_branches() -> usize {
+    3
+}
+
 impl ProbeTemplate {
     /// Parses a template from a YAML string.
     ///
@@ -108,6 +115,11 @@ impl ProbeTemplate {
             serde_yaml::from_str(yaml).map_err(|e| RedTeamerError::InvalidConfig(e.to_string()))?;
         template.validate()?;
         Ok(template)
+    }
+
+    /// Alias for [`Self::from_yaml`] for convenience.
+    pub fn from_yaml_str(yaml: &str) -> Result<Self> {
+        Self::from_yaml(yaml)
     }
 
     /// Loads and parses a template from a file path.
@@ -222,6 +234,7 @@ rules:
         assert_eq!(tpl.conversations.len(), 1);
         assert_eq!(tpl.adaptive_goals.len(), 1);
         assert_eq!(tpl.max_adaptive_turns, 4);
+        assert_eq!(tpl.pair_branches, 3);
         assert_eq!(tpl.rules.len(), 2);
     }
 }
