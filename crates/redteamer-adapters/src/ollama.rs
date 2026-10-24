@@ -180,11 +180,12 @@ impl TargetAdapter for OllamaAdapter {
             })
             .collect();
 
+        let is_stream = opts.stream || self.default_options.stream;
         let url = format!("{}/api/chat", self.base_url.trim_end_matches('/'));
         let body = OllamaChatRequest {
             model: self.info.model.as_deref().unwrap_or_default(),
             messages: wire_messages,
-            stream: false,
+            stream: is_stream,
             options,
             tools,
         };
@@ -202,13 +203,12 @@ impl TargetAdapter for OllamaAdapter {
             })?;
 
         let status = response.status();
-        let payload = response.text().await.map_err(|e| RedTeamerError::Adapter {
-            adapter: self.info.name,
-            message: format!("failed to read response body: {e}"),
-            source: Some(Box::new(e)),
-        })?;
-
         if !status.is_success() {
+            let payload = response.text().await.map_err(|e| RedTeamerError::Adapter {
+                adapter: self.info.name,
+                message: format!("failed to read response body: {e}"),
+                source: Some(Box::new(e)),
+            })?;
             return Err(RedTeamerError::Adapter {
                 adapter: self.info.name,
                 message: format!(
@@ -218,6 +218,43 @@ impl TargetAdapter for OllamaAdapter {
                 source: None,
             });
         }
+
+        if is_stream {
+            let needles = if !opts.early_terminate_strings.is_empty() {
+                &opts.early_terminate_strings
+            } else {
+                &self.default_options.early_terminate_strings
+            };
+            let acc = crate::stream::consume_stream(
+                response,
+                self.info.name,
+                needles,
+                crate::stream::extract_ollama_delta,
+            )
+            .await?;
+
+            let mut metadata = serde_json::json!({
+                "stream": true,
+                "chunk_count": acc.chunk_count,
+                "early_terminated": acc.early_terminated,
+            });
+            if let Some(ref needle) = acc.matched_needle {
+                metadata["terminated_by"] = serde_json::Value::String(needle.clone());
+            }
+
+            return Ok(AdapterResponse {
+                completed: !acc.early_terminated,
+                text: acc.accumulated_text,
+                tool_calls: Vec::new(),
+                metadata,
+            });
+        }
+
+        let payload = response.text().await.map_err(|e| RedTeamerError::Adapter {
+            adapter: self.info.name,
+            message: format!("failed to read response body: {e}"),
+            source: Some(Box::new(e)),
+        })?;
 
         let parsed: OllamaChatResponse =
             serde_json::from_str(&payload).map_err(|e| RedTeamerError::Adapter {

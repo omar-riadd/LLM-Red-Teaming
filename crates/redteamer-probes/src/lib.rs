@@ -434,11 +434,19 @@ impl Probe for TemplateProbe {
     ) -> Result<Vec<AttackRecord>> {
         let active_detectors = Arc::new(self.build_active_detectors(&detectors));
         let canary = self.template.generate_ephemeral_canary(session_id);
+        let mut early_terminate_strings = Vec::new();
+        if let Some(ref c) = canary {
+            early_terminate_strings.push(c.clone());
+        } else if let Some(ref c) = self.template.canary_token {
+            early_terminate_strings.push(c.clone());
+        }
+
         let gen_opts = Arc::new(GenerationOptions {
             system_prompt: self
                 .template
                 .effective_system_prompt_with_canary(canary.as_deref()),
             tools: self.template.tools.clone(),
+            early_terminate_strings,
             ..GenerationOptions::default()
         });
         let primary_cat = self

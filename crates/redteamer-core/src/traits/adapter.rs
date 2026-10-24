@@ -103,6 +103,12 @@ pub struct GenerationOptions {
     /// Optional tool/function definitions exposed to the model for this request.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDefinition>,
+    /// Substrings (e.g. canary tokens or stop phrases) that trigger early stream termination when encountered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub early_terminate_strings: Vec<String>,
+    /// Whether to enable streaming with real-time early termination for this request.
+    #[serde(default)]
+    pub stream: bool,
 }
 
 impl GenerationOptions {
@@ -144,6 +150,18 @@ pub struct AdapterResponse {
     pub completed: bool,
     /// Free-form provider metadata (usage stats, finish reason, ...).
     pub metadata: serde_json::Value,
+}
+
+impl AdapterResponse {
+    /// Returns `true` if this response was aborted early before normal completion
+    /// due to encountering an early termination string (canary token / stop phrase).
+    #[must_use]
+    pub fn is_early_terminated(&self) -> bool {
+        self.metadata
+            .get("early_terminated")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    }
 }
 
 /// A `TargetAdapter` abstracts communication with an LLM backend

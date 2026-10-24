@@ -117,6 +117,10 @@ pub struct ScanArgs {
     /// Skip the pre-flight `health_check()` call before launching probes.
     #[arg(long, default_value_t = false)]
     pub skip_health_check: bool,
+
+    /// Enable real-time SSE token streaming with early termination upon canary extraction.
+    #[arg(long, default_value_t = false)]
+    pub stream: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -205,6 +209,7 @@ pub async fn run_scan(args: ScanArgs) -> Result<bool> {
         system_prompt: args.system_prompt.clone(),
         temperature: args.temperature,
         max_tokens: args.max_tokens,
+        stream: args.stream,
         ..GenerationOptions::default()
     };
 

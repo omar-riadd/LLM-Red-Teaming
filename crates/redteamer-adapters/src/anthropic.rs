@@ -95,6 +95,8 @@ struct MessagesRequest<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<AnthropicToolIn<'a>>,
     messages: Vec<MessageIn<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -199,6 +201,7 @@ impl TargetAdapter for AnthropicAdapter {
             .unwrap_or(self.max_tokens);
         let temperature = opts.temperature.or(self.default_options.temperature);
 
+        let is_stream = opts.stream || self.default_options.stream;
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let body = MessagesRequest {
             model: self.info.model.as_deref().unwrap_or_default(),
@@ -207,6 +210,7 @@ impl TargetAdapter for AnthropicAdapter {
             temperature,
             tools,
             messages: wire_messages,
+            stream: if is_stream { Some(true) } else { None },
         };
 
         let response = self
@@ -224,13 +228,13 @@ impl TargetAdapter for AnthropicAdapter {
             })?;
 
         let status = response.status();
-        let payload = response.text().await.map_err(|e| RedTeamerError::Adapter {
-            adapter: self.info.name,
-            message: format!("failed to read response body: {e}"),
-            source: Some(Box::new(e)),
-        })?;
-
         if !status.is_success() {
+            let payload = response.text().await.map_err(|e| RedTeamerError::Adapter {
+                adapter: self.info.name,
+                message: format!("failed to read response body: {e}"),
+                source: Some(Box::new(e)),
+            })?;
+
             let lower = payload.to_lowercase();
             if status.as_u16() == 400
                 && (lower.contains("safety")
@@ -262,6 +266,43 @@ impl TargetAdapter for AnthropicAdapter {
                 source: None,
             });
         }
+
+        if is_stream {
+            let needles = if !opts.early_terminate_strings.is_empty() {
+                &opts.early_terminate_strings
+            } else {
+                &self.default_options.early_terminate_strings
+            };
+            let acc = crate::stream::consume_stream(
+                response,
+                self.info.name,
+                needles,
+                crate::stream::extract_anthropic_delta,
+            )
+            .await?;
+
+            let mut metadata = serde_json::json!({
+                "stream": true,
+                "chunk_count": acc.chunk_count,
+                "early_terminated": acc.early_terminated,
+            });
+            if let Some(ref needle) = acc.matched_needle {
+                metadata["terminated_by"] = serde_json::Value::String(needle.clone());
+            }
+
+            return Ok(AdapterResponse {
+                completed: !acc.early_terminated,
+                text: acc.accumulated_text,
+                tool_calls: Vec::new(),
+                metadata,
+            });
+        }
+
+        let payload = response.text().await.map_err(|e| RedTeamerError::Adapter {
+            adapter: self.info.name,
+            message: format!("failed to read response body: {e}"),
+            source: Some(Box::new(e)),
+        })?;
 
         let parsed: MessagesResponse =
             serde_json::from_str(&payload).map_err(|e| RedTeamerError::Adapter {

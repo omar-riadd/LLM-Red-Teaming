@@ -1,7 +1,7 @@
 # improve.md — Evolution & Future Roadmap for `llm-redteamer`
 
-> Status: **PHASES 0–24 COMPLETED & VERIFIED (v0.3, v0.4, v0.4.1 Hardened, Phase 23 MCP Attacks, Phase 24 DPO Dataset Exporter).**
-> Current Baseline: 96 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean.
+> Status: **PHASES 0–25 COMPLETED & VERIFIED (v0.3, v0.4, v0.4.1 Hardened, Phase 23 MCP, Phase 24 DPO, Phase 25 Streaming Early Termination).**
+> Current Baseline: 99 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean.
 > Session rules active: read files in full (100% of lines), update `project-progress.md` after each task, verify with real commands, maintain offline builds.
 
 ---
@@ -243,6 +243,7 @@ All 22 implementation phases are 100% complete and verified:
   - Phase 22: Cloud AI safety filter refusal mapping (Azure `ResponsibleAIPolicyViolation`, Gemini `SAFETY`/`BLOCKLIST`, OpenAI `content_filter`, Anthropic `safety`), enterprise CA bundle TLS loading (`REDTEAMER_CA_BUNDLE` / `SSL_CERT_FILE`), lab insecure TLS (`REDTEAMER_INSECURE_TLS=1`), dual APIM auth headers, HTTP 529 retryability, and embedded templates verification test.
   - Phase 23 (FG4): Model Context Protocol (MCP) server attacks: `McpAdapter` supporting HTTP & Stdio transports, JSON-RPC 2.0 handshake (`initialize`), tool discovery (`tools/list`), tool attack execution (`tools/call`), and `health_check`.
   - Phase 24 (FG5): Automated DPO / RLHF Dataset Exporter: `DpoExporter` extracting aligned `DpoPair` and `ShareGptDpoEntry` structures (`--format dpo` and `--export-dpo <PATH>`).
+  - Phase 25 (FG3): Real-Time Streaming Early Termination: `StreamAccumulator` and `consume_stream` via SSE / JSON chunks across OpenAI, Anthropic, and Ollama, truncating responses upon canary extraction to conserve tokens (`--stream`).
 
 ---
 
@@ -252,7 +253,7 @@ All 22 implementation phases are 100% complete and verified:
 |---|---|---|
 | **FG1** | **Executive Document Exporters (DOCX / PDF)** | Provide professional styled penetration testing deliverables for CISO/executive review alongside developer-oriented HTML and Markdown. |
 | **FG2** | **Distributed Worker Pool / Multi-IP Rotation** | Coordinate multiple agent containers or IP proxy rotation pools for massive enterprise model audits without triggering cloud gateway IP rate limits. |
-| **FG3** | **Real-Time Streaming Early Termination** | Inspect streaming tokens via Server-Sent Events (SSE) and terminate jailbroken responses immediately upon canary extraction, conserving API tokens. |
+| **FG3** | **Real-Time Streaming Early Termination** | `[COMPLETED - Phase 25]` Inspect streaming tokens via Server-Sent Events (SSE) and terminate jailbroken responses immediately upon canary extraction, conserving API tokens. |
 | **FG4** | **Model Context Protocol (MCP) Server Attacks** | `[COMPLETED - Phase 23]` Native `McpAdapter` with HTTP & Stdio transports, tool discovery, and `tools/call` execution. |
 | **FG5** | **Automated DPO / RLHF Dataset Exporter** | `[COMPLETED - Phase 24]` Native `DpoExporter` with DPO pairs and ShareGPT format (`--format dpo` / `--export-dpo`). |
 

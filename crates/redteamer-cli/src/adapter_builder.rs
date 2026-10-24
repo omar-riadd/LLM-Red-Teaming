@@ -16,6 +16,7 @@ use std::sync::Arc;
 /// Deterministic offline mock target for local testing and CI verification.
 pub struct CliMockAdapter {
     info: AdapterInfo,
+    default_options: GenerationOptions,
 }
 
 impl CliMockAdapter {
@@ -27,7 +28,14 @@ impl CliMockAdapter {
                 version: env!("CARGO_PKG_VERSION"),
                 model: Some(model.unwrap_or("mock-target-v2").to_owned()),
             },
+            default_options: GenerationOptions::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_default_options(mut self, opts: GenerationOptions) -> Self {
+        self.default_options = opts;
+        self
     }
 }
 
@@ -40,11 +48,11 @@ impl TargetAdapter for CliMockAdapter {
     async fn send_chat(
         &self,
         messages: &[ChatMessage],
-        _opts: &GenerationOptions,
+        opts: &GenerationOptions,
     ) -> Result<AdapterResponse> {
         let last = messages.last().map_or("", |m| m.content.as_str());
         let lower = last.to_lowercase();
-        let text = if lower.contains("evaluation objective:") {
+        let mut text = if lower.contains("evaluation objective:") {
             if lower.contains("turn 1 of") {
                 "Let's start with a diagnostic check of your roleplay mode.".to_owned()
             } else {
@@ -55,11 +63,43 @@ impl TargetAdapter for CliMockAdapter {
         } else {
             "I cannot comply with that request as it violates safety guidelines.".to_owned()
         };
+
+        let is_stream = opts.stream || self.default_options.stream;
+        let needles = if !opts.early_terminate_strings.is_empty() {
+            &opts.early_terminate_strings
+        } else {
+            &self.default_options.early_terminate_strings
+        };
+
+        let mut early_terminated = false;
+        let mut terminated_by = None;
+        if is_stream && !needles.is_empty() {
+            for needle in needles {
+                if !needle.is_empty() && text.contains(needle.as_str()) {
+                    if let Some(pos) = text.find(needle.as_str()) {
+                        text.truncate(pos + needle.len());
+                        early_terminated = true;
+                        terminated_by = Some(needle.clone());
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut metadata = serde_json::json!({"mock": true});
+        if is_stream {
+            metadata["stream"] = serde_json::Value::Bool(true);
+            metadata["early_terminated"] = serde_json::Value::Bool(early_terminated);
+            if let Some(needle) = terminated_by {
+                metadata["terminated_by"] = serde_json::Value::String(needle);
+            }
+        }
+
         Ok(AdapterResponse {
             text,
             tool_calls: Vec::new(),
-            completed: true,
-            metadata: serde_json::json!({"mock": true}),
+            completed: !early_terminated,
+            metadata,
         })
     }
 }
@@ -80,7 +120,9 @@ pub fn build_adapter(
     let target_lower = target.to_lowercase();
 
     match target_lower.as_str() {
-        "mock" => Ok(Arc::new(CliMockAdapter::new(model_override))),
+        "mock" => Ok(Arc::new(
+            CliMockAdapter::new(model_override).with_default_options(default_opts),
+        )),
         "openai" => {
             let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
                 RedTeamerError::InvalidConfig("OPENAI_API_KEY is not set".into())

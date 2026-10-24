@@ -209,6 +209,90 @@ impl OpenAiAdapter {
             metadata,
         })
     }
+
+    async fn complete_stream(
+        &self,
+        body: &ChatRequest,
+        early_terminate_strings: &[String],
+    ) -> Result<AdapterResponse> {
+        self.limiter.lock().await.acquire().await;
+
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        let response = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.api_key)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| RedTeamerError::Adapter {
+                adapter: self.info.name,
+                message: format!("streaming request to {url} failed: {e}"),
+                source: Some(Box::new(e)),
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let payload = response.text().await.map_err(|e| RedTeamerError::Adapter {
+                adapter: self.info.name,
+                message: format!("failed to read error response: {e}"),
+                source: Some(Box::new(e)),
+            })?;
+
+            let lower = payload.to_lowercase();
+            if status.as_u16() == 400
+                && (lower.contains("content_filter")
+                    || lower.contains("content_policy_violation")
+                    || lower.contains("safety"))
+            {
+                let refusal =
+                    "I cannot fulfill this request due to content safety policy violation."
+                        .to_string();
+                let metadata = serde_json::json!({
+                    "refusal": refusal,
+                    "finish_reason": "content_filter",
+                    "http_status": 400,
+                    "raw_filter": truncate(&payload, 1024),
+                });
+                return Ok(AdapterResponse {
+                    text: refusal,
+                    tool_calls: Vec::new(),
+                    completed: true,
+                    metadata,
+                });
+            }
+
+            return Err(RedTeamerError::Adapter {
+                adapter: self.info.name,
+                message: format!("HTTP {status}: {}", truncate(&payload, 512)),
+                source: None,
+            });
+        }
+
+        let acc = crate::stream::consume_stream(
+            response,
+            self.info.name,
+            early_terminate_strings,
+            crate::stream::extract_openai_delta,
+        )
+        .await?;
+
+        let mut metadata = serde_json::json!({
+            "stream": true,
+            "chunk_count": acc.chunk_count,
+            "early_terminated": acc.early_terminated,
+        });
+        if let Some(ref needle) = acc.matched_needle {
+            metadata["terminated_by"] = serde_json::Value::String(needle.clone());
+        }
+
+        Ok(AdapterResponse {
+            text: acc.accumulated_text,
+            tool_calls: Vec::new(),
+            completed: !acc.early_terminated,
+            metadata,
+        })
+    }
 }
 
 #[async_trait]
@@ -248,6 +332,7 @@ impl TargetAdapter for OpenAiAdapter {
             })
             .collect();
 
+        let is_stream = opts.stream || self.default_options.stream;
         let req = ChatRequest {
             model: self.info.model.clone().unwrap_or_default(),
             messages: wire_messages,
@@ -255,8 +340,18 @@ impl TargetAdapter for OpenAiAdapter {
             max_tokens: opts.max_tokens.or(self.default_options.max_tokens),
             seed: opts.seed.or(self.default_options.seed),
             tools,
+            stream: if is_stream { Some(true) } else { None },
         };
-        self.complete(&req).await
+        if is_stream {
+            let needles = if !opts.early_terminate_strings.is_empty() {
+                &opts.early_terminate_strings
+            } else {
+                &self.default_options.early_terminate_strings
+            };
+            self.complete_stream(&req, needles).await
+        } else {
+            self.complete(&req).await
+        }
     }
 }
 
@@ -276,6 +371,8 @@ struct ChatRequest {
     seed: Option<u64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<OpenAiToolIn>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]

@@ -210,3 +210,33 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
   - `cargo fmt --all -- --check` 100% clean.
   - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
 
+---
+
+## Phase 25 — Real-Time Streaming Early Termination (FG3)
+- [x] **25.1** Extended `redteamer-core/src/traits/adapter.rs`:
+  - Added `early_terminate_strings: Vec<String>` and `stream: bool` to `GenerationOptions`.
+  - Added `AdapterResponse::is_early_terminated(&self) -> bool` reading `metadata["early_terminated"]`.
+- [x] **25.2** Implemented zero-dependency streaming in `crates/redteamer-adapters/src/stream.rs`:
+  - Zero-dependency Server-Sent Events (SSE) data frame parser (`parse_sse_data`).
+  - Provider-specific delta extraction functions: `extract_openai_delta`, `extract_anthropic_delta`, `extract_ollama_delta`.
+  - `StreamAccumulator` with multi-needle substring detection and match position truncation.
+  - `consume_stream` async engine utilizing `reqwest::Response::chunk()`: drops the HTTP connection immediately upon needle encounter to conserve remote tokens, returning structured metadata (`stream`, `early_terminated`, `terminated_by`, `chunk_count`).
+  - Added 5 unit tests validating SSE parsing, JSON delta extraction, and needle accumulation.
+- [x] **25.3** Wired streaming and early termination into target adapters:
+  - `OpenAiAdapter`: `complete_stream` and `ChatRequest.stream: Some(true)`.
+  - `AnthropicAdapter`: SSE message event processing and early termination.
+  - `OllamaAdapter`: newline-delimited JSON stream processing and early termination.
+  - Added mock HTTP streaming integration test in `crates/redteamer-adapters/src/lib.rs` verifying canary extraction stops HTTP streaming after partial tokens.
+- [x] **25.4** Dynamic canary propagation in `crates/redteamer-probes/src/lib.rs`:
+  - `TemplateProbe::run` automatically populates `early_terminate_strings` from the session's ephemeral or static canary tokens.
+- [x] **25.5** CLI flag and mock simulation:
+  - Added `--stream` flag to `redteamer-cli/src/cmd/scan.rs` and propagated to `default_opts`.
+  - Updated `CliMockAdapter` in `adapter_builder.rs` to store `default_options`, respect `--stream`, and simulate canary truncation.
+  - Added `scan_with_stream_flag_executes_successfully` in `crates/redteamer-cli/tests/cli_integration.rs`.
+- [x] **25.6** Full Workspace Verification:
+  - All 99 tests passing (`cargo test --workspace --offline` across all 8 crates, 8 integration suites, and 4 doc-tests).
+  - Clippy `-D warnings` 100% clean (0 warnings, 0 errors).
+  - `cargo fmt --all -- --check` 100% clean.
+  - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
+
+

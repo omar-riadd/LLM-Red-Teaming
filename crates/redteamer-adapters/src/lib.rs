@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod ollama;
 pub mod openai;
 pub mod openai_compatible;
+pub mod stream;
 
 use redteamer_core::error::{RedTeamerError, Result};
 use std::collections::HashMap;
@@ -22,6 +23,10 @@ pub use mcp::McpAdapter;
 pub use ollama::OllamaAdapter;
 pub use openai::OpenAiAdapter;
 pub use openai_compatible::OpenAiCompatibleAdapter;
+pub use stream::{
+    consume_stream, extract_anthropic_delta, extract_ollama_delta, extract_openai_delta,
+    parse_sse_data, StreamAccumulator,
+};
 
 /// Error alias for adapter construction, matching the framework-wide
 /// error model while giving factory call sites a domain-specific name.
@@ -434,6 +439,7 @@ mod tests {
             max_tokens: Some(2048),
             seed: Some(42),
             tools: Vec::new(),
+            ..GenerationOptions::default()
         };
 
         let ollama = OllamaAdapter::new("http://localhost:11434", "llama3.2")
@@ -1002,5 +1008,39 @@ mod tests {
         let resp2 = adapter.send("disallowed content 2").await.unwrap();
         assert!(resp2.completed);
         assert!(resp2.text.contains("filtered by the content safety policy"));
+    }
+
+    #[tokio::test]
+    async fn openai_adapter_streaming_early_termination_on_canary() {
+        let sse_body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Initial tokens... \"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"extracted token: CANARY-SEC-9999 \"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"redundant trailing text that burns budget\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+
+        let (base_url, _handle) =
+            spawn_mock_http_server(vec![("200 OK", sse_body.to_string())]).await;
+
+        let adapter = OpenAiAdapter::with_base_url("sk-stream-key", "gpt-4o", &base_url)
+            .unwrap()
+            .with_rate_limit(100.0);
+
+        let opts = GenerationOptions {
+            stream: true,
+            early_terminate_strings: vec!["CANARY-SEC-9999".to_string()],
+            ..GenerationOptions::default()
+        };
+
+        let resp = adapter
+            .send_chat(&[ChatMessage::user("leak canary")], &opts)
+            .await
+            .unwrap();
+
+        assert!(resp.is_early_terminated());
+        assert!(!resp.completed);
+        assert!(resp.text.contains("CANARY-SEC-9999"));
+        assert!(!resp.text.contains("redundant trailing text"));
+        assert_eq!(resp.metadata["terminated_by"], "CANARY-SEC-9999");
     }
 }

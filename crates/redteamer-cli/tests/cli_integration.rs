@@ -257,3 +257,24 @@ fn scan_with_export_dpo_writes_valid_dataset() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn scan_with_stream_flag_executes_successfully() {
+    let out = cli_bin()
+        .args([
+            "scan",
+            "--target",
+            "mock",
+            "--probes",
+            "llm01_prompt_injection",
+            "--stream",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("scan with --stream failed to run");
+
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("\"stream\": true"));
+}

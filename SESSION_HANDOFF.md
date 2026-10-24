@@ -35,7 +35,7 @@
   - `20833a6` — `feat: complete v0.4 (Phases 12-18) enterprise red-teaming release`
   - `69a8e78` — `chore: release v0.3.0 and finalize all Phase 6-11 improvements`
 - **Current Verification Baseline**:
-  - `cargo test --workspace --offline` → **96 passed; 0 failed; 0 ignored** across all 8 crates, 8 integration test suites, and 4 doc-tests.
+  - `cargo test --workspace --offline` → **99 passed; 0 failed; 0 ignored** across all 8 crates, 8 integration test suites, and 4 doc-tests.
   - `cargo clippy --workspace --all-targets --offline -- -D warnings` → **0 warnings, 0 errors**.
   - `cargo fmt --all -- --check` → **100% clean**.
   - `cargo deny --offline check` → **advisories ok, bans ok, licenses ok, sources ok**.
@@ -158,13 +158,13 @@ cargo run --offline -p redteamer-cli -- scan --target mock --format markdown
 ---
 
 ## 6. How to Resume in the New Session
-
+ 
 When starting the next session:
-1. Confirm that `git status` is clean and all 96 workspace tests pass.
+1. Confirm that `git status` is clean and all 99 workspace tests pass.
 2. Review `improve.md` section 4 for the future roadmap proposals:
    - **`FG1`**: Executive Document Exporters (DOCX / PDF).
    - **`FG2`**: Distributed Worker Pool / Multi-IP Rotation.
-   - **`FG3`**: Real-Time Streaming Early Termination (SSE token scanning).
+   - **`FG3`**: Real-Time Streaming Early Termination (Completed in Phase 25).
    - **`FG4`**: Model Context Protocol (MCP) Server Attacks (Completed in Phase 23).
    - **`FG5`**: Automated DPO / RLHF Dataset Exporter (Completed in Phase 24).
-3. Ask the user which feature or roadmap item they would like to pursue next, or proceed with tagging and releasing `v0.4.0` / `v0.4.1`.
+3. Ask the user which feature or roadmap item they would like to pursue next, or proceed with tagging and releasing `v0.5.0`.
