@@ -62,12 +62,14 @@ impl RedTeamerError {
                     || msg.contains("http 502")
                     || msg.contains("http 503")
                     || msg.contains("http 504")
+                    || msg.contains("http 529")
                     || msg.contains("timed out")
                     || msg.contains("timeout")
                     || msg.contains("connection reset")
                     || msg.contains("connection refused")
                     || msg.contains("temporarily unavailable")
                     || msg.contains("rate limit")
+                    || msg.contains("overloaded")
             }
             _ => false,
         }
@@ -103,6 +105,13 @@ mod tests {
             source: None,
         };
         assert!(timeout_err.is_retryable());
+
+        let overloaded_err = RedTeamerError::Adapter {
+            adapter: "anthropic-messages",
+            message: "HTTP 529: Overloaded".into(),
+            source: None,
+        };
+        assert!(overloaded_err.is_retryable());
 
         let auth_err = RedTeamerError::Adapter {
             adapter: "openai-chat",

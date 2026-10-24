@@ -29,15 +29,8 @@ impl OllamaAdapter {
     /// Fails if the HTTP client cannot be constructed.
     pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Result<Self> {
         let base_url = base_url.into();
-        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300));
-        if crate::is_loopback_url(&base_url) {
-            builder = builder.no_proxy();
-        }
-        let client = builder.build().map_err(|e| RedTeamerError::Adapter {
-            adapter: "ollama-chat",
-            message: format!("failed to build HTTP client: {e}"),
-            source: Some(Box::new(e)),
-        })?;
+        let client =
+            crate::build_http_client_with_timeout(&base_url, std::time::Duration::from_secs(300))?;
 
         let model = model.into();
         Ok(Self {

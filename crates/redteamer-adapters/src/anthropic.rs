@@ -44,15 +44,7 @@ impl AnthropicAdapter {
         base_url: impl Into<String>,
     ) -> Result<Self> {
         let base_url = base_url.into();
-        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(120));
-        if crate::is_loopback_url(&base_url) {
-            builder = builder.no_proxy();
-        }
-        let client = builder.build().map_err(|e| RedTeamerError::Adapter {
-            adapter: "anthropic-messages",
-            message: format!("failed to build HTTP client: {e}"),
-            source: Some(Box::new(e)),
-        })?;
+        let client = crate::build_http_client(&base_url)?;
 
         let model = model.into();
         Ok(Self {
@@ -239,6 +231,28 @@ impl TargetAdapter for AnthropicAdapter {
         })?;
 
         if !status.is_success() {
+            let lower = payload.to_lowercase();
+            if status.as_u16() == 400
+                && (lower.contains("safety")
+                    || lower.contains("policy")
+                    || lower.contains("violates"))
+            {
+                let refusal =
+                    "I cannot fulfill this request as it violates safety guidelines.".to_string();
+                let metadata = serde_json::json!({
+                    "refusal": refusal,
+                    "finish_reason": "safety",
+                    "http_status": 400,
+                    "raw_filter": payload.chars().take(1024).collect::<String>(),
+                });
+                return Ok(AdapterResponse {
+                    text: refusal,
+                    tool_calls: Vec::new(),
+                    completed: true,
+                    metadata,
+                });
+            }
+
             return Err(RedTeamerError::Adapter {
                 adapter: self.info.name,
                 message: format!(

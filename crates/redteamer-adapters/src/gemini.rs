@@ -42,15 +42,7 @@ impl GeminiAdapter {
         base_url: impl Into<String>,
     ) -> Result<Self> {
         let base_url = base_url.into();
-        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(120));
-        if crate::is_loopback_url(&base_url) {
-            builder = builder.no_proxy();
-        }
-        let client = builder.build().map_err(|e| RedTeamerError::Adapter {
-            adapter: "gemini-rest",
-            message: format!("failed to build HTTP client: {e}"),
-            source: Some(Box::new(e)),
-        })?;
+        let client = crate::build_http_client(&base_url)?;
 
         let model = model.into();
         Ok(Self {
@@ -116,6 +108,30 @@ impl GeminiAdapter {
         })?;
 
         if !status.is_success() {
+            let lower = payload.to_lowercase();
+            // Google Gemini blocks safety-violating prompts with 400 or 403 status codes.
+            // Map these to a resistant refusal response rather than an execution error.
+            if (status.as_u16() == 400 || status.as_u16() == 403)
+                && (lower.contains("safety")
+                    || lower.contains("harm_category")
+                    || lower.contains("blocked due to safety")
+                    || lower.contains("prohibited_content"))
+            {
+                let refusal = "I cannot fulfill this request as it was blocked by Google Gemini content safety filters.".to_string();
+                let metadata = serde_json::json!({
+                    "refusal": refusal,
+                    "finish_reason": "SAFETY",
+                    "http_status": status.as_u16(),
+                    "raw_filter": truncate(&payload, 1024),
+                });
+                return Ok(AdapterResponse {
+                    text: refusal,
+                    tool_calls: Vec::new(),
+                    completed: true,
+                    metadata,
+                });
+            }
+
             return Err(RedTeamerError::Adapter {
                 adapter: self.info.name,
                 message: format!("HTTP {status}: {}", truncate(&payload, 512)),
@@ -131,7 +147,7 @@ impl GeminiAdapter {
             })?;
 
         let candidate = parsed.candidates.first();
-        let text = candidate
+        let mut text = candidate
             .and_then(|c| c.content.as_ref())
             .map(|content| {
                 content
@@ -144,7 +160,22 @@ impl GeminiAdapter {
             .unwrap_or_default();
 
         let finish_reason = candidate.and_then(|c| c.finish_reason.clone());
-        let completed = matches!(finish_reason.as_deref(), Some("STOP"));
+        let is_safety_blocked = matches!(
+            finish_reason.as_deref(),
+            Some("SAFETY" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII")
+        ) || parsed
+            .prompt_feedback
+            .as_ref()
+            .and_then(|pf| pf.block_reason.as_deref())
+            .is_some_and(|br| {
+                br.eq_ignore_ascii_case("SAFETY") || br.eq_ignore_ascii_case("BLOCKLIST")
+            });
+
+        if text.is_empty() && is_safety_blocked {
+            text = "I cannot fulfill this request as it was blocked by Google Gemini content safety filters.".to_string();
+        }
+
+        let completed = matches!(finish_reason.as_deref(), Some("STOP")) || is_safety_blocked;
 
         let mut metadata = parsed
             .usage_metadata
@@ -162,6 +193,14 @@ impl GeminiAdapter {
                 obj.insert(
                     "finish_reason".to_owned(),
                     serde_json::Value::String(reason),
+                );
+            }
+        }
+        if is_safety_blocked {
+            if let Some(obj) = metadata.as_object_mut() {
+                obj.insert(
+                    "refusal".to_owned(),
+                    serde_json::Value::String(text.clone()),
                 );
             }
         }
@@ -272,8 +311,17 @@ struct GeminiGenerationConfig {
 struct GeminiResponse {
     #[serde(default)]
     candidates: Vec<GeminiCandidate>,
+    #[serde(default, alias = "prompt_feedback")]
+    prompt_feedback: Option<GeminiPromptFeedback>,
     #[serde(default, alias = "usage_metadata")]
     usage_metadata: Option<GeminiUsageMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiPromptFeedback {
+    #[serde(default, alias = "block_reason")]
+    block_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -34,15 +34,7 @@ impl OpenAiCompatibleAdapter {
     /// Returns [`RedTeamerError::Adapter`] if the HTTP client fails to construct.
     pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Result<Self> {
         let base_url = base_url.into();
-        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(120));
-        if crate::is_loopback_url(&base_url) {
-            builder = builder.no_proxy();
-        }
-        let client = builder.build().map_err(|e| RedTeamerError::Adapter {
-            adapter: "openai-compatible",
-            message: format!("failed to build HTTP client: {e}"),
-            source: Some(Box::new(e)),
-        })?;
+        let client = crate::build_http_client(&base_url)?;
 
         let model = model.into();
         Ok(Self {
@@ -149,6 +141,29 @@ impl OpenAiCompatibleAdapter {
         })?;
 
         if !status.is_success() {
+            let lower = payload.to_lowercase();
+            if status.as_u16() == 400
+                && (lower.contains("content_filter")
+                    || lower.contains("content_policy_violation")
+                    || lower.contains("safety"))
+            {
+                let refusal =
+                    "I cannot fulfill this request due to content safety policy violation."
+                        .to_string();
+                let metadata = serde_json::json!({
+                    "refusal": refusal,
+                    "finish_reason": "content_filter",
+                    "http_status": 400,
+                    "raw_filter": truncate(&payload, 1024),
+                });
+                return Ok(AdapterResponse {
+                    text: refusal,
+                    tool_calls: Vec::new(),
+                    completed: true,
+                    metadata,
+                });
+            }
+
             return Err(RedTeamerError::Adapter {
                 adapter: self.info.name,
                 message: format!("HTTP {status}: {}", truncate(&payload, 512)),
@@ -164,12 +179,18 @@ impl OpenAiCompatibleAdapter {
             })?;
 
         let choice = parsed.choices.first();
+        let is_content_filtered =
+            choice.is_some_and(|c| c.finish_reason.as_deref() == Some("content_filter"));
         let refusal = choice.and_then(|c| c.message.refusal.clone());
-        let text = choice
+        let mut text = choice
             .and_then(|c| c.message.content.clone())
             .filter(|s| !s.is_empty())
             .or_else(|| refusal.clone())
             .unwrap_or_default();
+
+        if text.is_empty() && is_content_filtered {
+            text = "The response was filtered by the content safety policy.".to_string();
+        }
 
         let tool_calls = choice
             .map(|c| {
@@ -190,17 +211,35 @@ impl OpenAiCompatibleAdapter {
             .usage
             .map(|u| serde_json::to_value(u).unwrap_or_default())
             .unwrap_or_else(|| serde_json::json!({}));
-        if let Some(ref_str) = refusal {
+        if let Some(ref ref_str) = refusal {
             if let Some(obj) = metadata.as_object_mut() {
-                obj.insert("refusal".to_owned(), serde_json::Value::String(ref_str));
+                obj.insert(
+                    "refusal".to_owned(),
+                    serde_json::Value::String(ref_str.clone()),
+                );
+            }
+        } else if is_content_filtered {
+            if let Some(obj) = metadata.as_object_mut() {
+                obj.insert(
+                    "refusal".to_owned(),
+                    serde_json::Value::String(text.clone()),
+                );
+                obj.insert(
+                    "finish_reason".to_owned(),
+                    serde_json::Value::String("content_filter".to_owned()),
+                );
             }
         }
 
         Ok(AdapterResponse {
             text,
             tool_calls,
-            completed: choice
-                .is_some_and(|c| matches!(c.finish_reason.as_deref(), Some("stop" | "tool_calls"))),
+            completed: choice.is_some_and(|c| {
+                matches!(
+                    c.finish_reason.as_deref(),
+                    Some("stop" | "tool_calls" | "content_filter")
+                )
+            }),
             metadata,
         })
     }
