@@ -175,5 +175,21 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
   - Added unit test `all_eleven_embedded_owasp_templates_compile_and_validate` verifying all 11 built-in templates compile and meet schema, category, description, and inline rule requirements.
 - [x] **22.6** Full Workspace Verification & Git Commit:
   - All 88 tests passing (`cargo test --workspace --offline`), 0 clippy warnings (`cargo clippy --workspace --all-targets --offline -- -D warnings`), `cargo fmt --all -- --check` clean, `cargo deny --offline check` clean (`advisories ok, bans ok, licenses ok, sources ok`).
-  - Committed to `main` as `9ecbdb6`.
+---
+
+## Phase 23 — Model Context Protocol (MCP) Server Attacks (FG4)
+- [x] **23.1** Implemented `McpAdapter` in `crates/redteamer-adapters/src/mcp.rs` for Model Context Protocol servers:
+  - Supports HTTP JSON-RPC 2.0 endpoints (`http://.../mcp`) and local Stdio subprocess commands (`stdio://...` / `mcp://...`).
+  - Implements full MCP 2024-11-05 handshake: `initialize` client negotiation and `notifications/initialized`.
+  - Discovers exposed tools via `tools/list` and caches schemas as `ToolDefinition`.
+  - Executes targeted tool attacks via `tools/call`, mapping prompt arguments and extracting text/data content blocks.
+  - Intercepts `isError: true` and JSON-RPC errors, returning structured execution and refusal text for detector evaluations.
+- [x] **23.2** Wired `McpAdapter` into `crates/redteamer-adapters/src/lib.rs` and `create_adapter` factory under `AdapterConfig::Mcp`.
+- [x] **23.3** Wired `--target mcp` and `--target stdio://<cmd>` in `crates/redteamer-cli/src/adapter_builder.rs`.
+- [x] **23.4** Added mock HTTP JSON-RPC integration test suite in `crates/redteamer-adapters/tests/mcp_mock.rs` testing `initialize`, `tools/list`, `tools/call` with canary extraction, tool error handling, and `health_check`.
+- [x] **23.5** Full Workspace Verification:
+  - All 92 tests passing (`cargo test --workspace --offline` across 8 crates and 8 test suites).
+  - Clippy `-D warnings` 100% clean (0 warnings, 0 errors).
+  - `cargo fmt --all -- --check` 100% clean.
+  - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
 

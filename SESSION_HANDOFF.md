@@ -33,7 +33,7 @@
   - `20833a6` — `feat: complete v0.4 (Phases 12-18) enterprise red-teaming release`
   - `69a8e78` — `chore: release v0.3.0 and finalize all Phase 6-11 improvements`
 - **Current Verification Baseline**:
-  - `cargo test --workspace --offline` → **88 passed; 0 failed; 0 ignored** across all 8 crates, 7 integration test suites, and 4 doc-tests.
+  - `cargo test --workspace --offline` → **92 passed; 0 failed; 0 ignored** across all 8 crates, 8 integration test suites, and 4 doc-tests.
   - `cargo clippy --workspace --all-targets --offline -- -D warnings` → **0 warnings, 0 errors**.
   - `cargo fmt --all -- --check` → **100% clean**.
   - `cargo deny --offline check` → **advisories ok, bans ok, licenses ok, sources ok**.
@@ -75,6 +75,7 @@ LLM-Red-Teaming/
    - `openai.rs` (`OpenAiAdapter`) & `openai_compatible.rs` (`OpenAiCompatibleAdapter`): Handles `/v1/chat/completions`, function tool-calling, specialized presets for OpenRouter (`HTTP-Referer`, `X-Title`) and vLLM, and intercepts `content_filter` / `content_policy_violation`.
    - `anthropic.rs` (`AnthropicAdapter`): Messages API (`/v1/messages`), top-level system prompt, `claude-sonnet-4-5` default, `tool_use` blocks, and HTTP 400 safety block interception.
    - `ollama.rs` (`OllamaAdapter`): Local inference adapter, 300s timeout, `/api/chat` with tool calls, `/api/tags` health check.
+   - `mcp.rs` (`McpAdapter`): Model Context Protocol server adapter (HTTP and Stdio transports, JSON-RPC 2.0 handshake, tool discovery via `tools/list`, tool execution via `tools/call`, tool error/refusal interception, and canary extraction).
 
 3. **`crates/redteamer-payload`**:
    - `mutation.rs`: 14 mutation types: `Identity`, `Base64`, `Rot13`, `Hex`, `Reverse`, `WhitespaceNoise`, `CaseRandomize`, `RoleplayPrefix`, `SystemOverridePrefix`, `BenignSuffix`, `Leetspeak`, `Homoglyph`, `ZeroWidth`, and `JsonTaskWrap`.

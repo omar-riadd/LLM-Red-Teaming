@@ -1,7 +1,7 @@
 # improve.md — Evolution & Future Roadmap for `llm-redteamer`
 
-> Status: **PHASES 0–22 COMPLETED & VERIFIED (v0.3, v0.4, v0.4.1 Hardened).**
-> Current Baseline: commit `9ecbdb6` on `main`. 88 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean.
+> Status: **PHASES 0–23 COMPLETED & VERIFIED (v0.3, v0.4, v0.4.1 Hardened, Phase 23 MCP Attacks).**
+> Current Baseline: 92 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean.
 > Session rules active: read files in full (100% of lines), update `project-progress.md` after each task, verify with real commands, maintain offline builds.
 
 ---
@@ -241,6 +241,7 @@ All 22 implementation phases are 100% complete and verified:
   - Phase 20: Session-unique ephemeral canaries; dynamic CVSS v4.0 calibrator with Shannon byte entropy ($H \ge 4.5$) and conversational turn depth ($T \ge 2 \to \text{AC:H}$).
   - Phase 21: Enterprise target adapters (`GeminiAdapter`, `AzureOpenAiAdapter`, `OpenAiCompatibleAdapter` for vLLM & OpenRouter).
   - Phase 22: Cloud AI safety filter refusal mapping (Azure `ResponsibleAIPolicyViolation`, Gemini `SAFETY`/`BLOCKLIST`, OpenAI `content_filter`, Anthropic `safety`), enterprise CA bundle TLS loading (`REDTEAMER_CA_BUNDLE` / `SSL_CERT_FILE`), lab insecure TLS (`REDTEAMER_INSECURE_TLS=1`), dual APIM auth headers, HTTP 529 retryability, and embedded templates verification test.
+  - Phase 23 (FG4): Model Context Protocol (MCP) server attacks: `McpAdapter` supporting HTTP & Stdio transports, JSON-RPC 2.0 handshake (`initialize`), tool discovery (`tools/list`), tool attack execution (`tools/call`), and `health_check`.
 
 ---
 
@@ -251,7 +252,7 @@ All 22 implementation phases are 100% complete and verified:
 | **FG1** | **Executive Document Exporters (DOCX / PDF)** | Provide professional styled penetration testing deliverables for CISO/executive review alongside developer-oriented HTML and Markdown. |
 | **FG2** | **Distributed Worker Pool / Multi-IP Rotation** | Coordinate multiple agent containers or IP proxy rotation pools for massive enterprise model audits without triggering cloud gateway IP rate limits. |
 | **FG3** | **Real-Time Streaming Early Termination** | Inspect streaming tokens via Server-Sent Events (SSE) and terminate jailbroken responses immediately upon canary extraction, conserving API tokens. |
-| **FG4** | **Model Context Protocol (MCP) Server Attacks** | Expand `redteamer-adapters` to red-team tools and agents hosted via standard Model Context Protocol servers. |
+| **FG4** | **Model Context Protocol (MCP) Server Attacks** | `[COMPLETED - Phase 23]` Native `McpAdapter` with HTTP & Stdio transports, tool discovery, and `tools/call` execution. |
 | **FG5** | **Automated DPO / RLHF Dataset Exporter** | Export verified vulnerable and resistant prompt-response pairs directly into ShareGPT / Alpaca JSON format for downstream safety model fine-tuning. |
 
 ---

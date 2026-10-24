@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use redteamer_adapters::{
-    AnthropicAdapter, AzureOpenAiAdapter, GeminiAdapter, OllamaAdapter, OpenAiAdapter,
+    AnthropicAdapter, AzureOpenAiAdapter, GeminiAdapter, McpAdapter, OllamaAdapter, OpenAiAdapter,
     OpenAiCompatibleAdapter,
 };
 use redteamer_core::error::{RedTeamerError, Result};
@@ -201,6 +201,27 @@ pub fn build_adapter(
             }
             Ok(Arc::new(adapter))
         }
+        "mcp" => {
+            let endpoint = base_url_override
+                .map(ToOwned::to_owned)
+                .or_else(|| std::env::var("MCP_SERVER_URL").ok())
+                .or_else(|| std::env::var("MCP_ENDPOINT").ok())
+                .unwrap_or_else(|| "http://127.0.0.1:8000/mcp".to_owned());
+            let mut adapter = McpAdapter::new(endpoint)?
+                .with_rate_limit(rps);
+            if let Some(tool) = model_override {
+                adapter = adapter.with_target_tool(tool);
+            }
+            Ok(Arc::new(adapter))
+        }
+        target if target.starts_with("mcp://") || target.starts_with("stdio://") => {
+            let mut adapter = McpAdapter::new(target)?
+                .with_rate_limit(rps);
+            if let Some(tool) = model_override {
+                adapter = adapter.with_target_tool(tool);
+            }
+            Ok(Arc::new(adapter))
+        }
         url if url.starts_with("http://") || url.starts_with("https://") => {
             let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "none".to_owned());
             let model = model_override
@@ -213,7 +234,7 @@ pub fn build_adapter(
             Ok(Arc::new(adapter))
         }
         _ => Err(RedTeamerError::InvalidConfig(format!(
-            "unknown target '{target}', expected one of: openai, ollama, anthropic, gemini, azure, openrouter, vllm, mock, or an http(s):// base URL"
+            "unknown target '{target}', expected one of: openai, ollama, anthropic, gemini, azure, openrouter, vllm, mcp, mock, or an http(s):// base URL"
         ))),
     }
 }
@@ -288,5 +309,27 @@ mod tests {
         .unwrap();
         assert_eq!(vllm.info().name, "openai-compatible");
         assert_eq!(vllm.info().model.as_deref(), Some("llama-3-8b"));
+
+        let mcp_http = build_adapter(
+            "mcp",
+            Some("execute_command"),
+            Some("http://127.0.0.1:8080/mcp"),
+            None,
+            GenerationOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(mcp_http.info().name, "mcp-server");
+        assert_eq!(mcp_http.info().model.as_deref(), Some("execute_command"));
+
+        let mcp_stdio = build_adapter(
+            "stdio://echo ok",
+            Some("read_file"),
+            None,
+            None,
+            GenerationOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(mcp_stdio.info().name, "mcp-server");
+        assert_eq!(mcp_stdio.info().model.as_deref(), Some("read_file"));
     }
 }

@@ -6,6 +6,7 @@
 pub mod anthropic;
 pub mod azure;
 pub mod gemini;
+pub mod mcp;
 pub mod ollama;
 pub mod openai;
 pub mod openai_compatible;
@@ -17,6 +18,7 @@ use std::time::{Duration, Instant};
 pub use anthropic::AnthropicAdapter;
 pub use azure::AzureOpenAiAdapter;
 pub use gemini::GeminiAdapter;
+pub use mcp::McpAdapter;
 pub use ollama::OllamaAdapter;
 pub use openai::OpenAiAdapter;
 pub use openai_compatible::OpenAiCompatibleAdapter;
@@ -71,6 +73,14 @@ pub enum AdapterConfig {
         model: String,
         #[serde(default)]
         api_key: Option<String>,
+        #[serde(default)]
+        headers: HashMap<String, String>,
+    },
+    /// Model Context Protocol (MCP) tool server or agent.
+    Mcp {
+        endpoint: String,
+        #[serde(default)]
+        default_tool: Option<String>,
         #[serde(default)]
         headers: HashMap<String, String>,
     },
@@ -164,6 +174,20 @@ pub fn create_adapter(
             let mut adapter = OpenAiCompatibleAdapter::new(base_url, model)?;
             if let Some(key) = api_key {
                 adapter = adapter.with_api_key(key);
+            }
+            for (k, v) in headers {
+                adapter = adapter.with_header(k, v);
+            }
+            Box::new(adapter)
+        }
+        AdapterConfig::Mcp {
+            endpoint,
+            default_tool,
+            headers,
+        } => {
+            let mut adapter = McpAdapter::new(endpoint)?;
+            if let Some(tool) = default_tool {
+                adapter = adapter.with_target_tool(tool);
             }
             for (k, v) in headers {
                 adapter = adapter.with_header(k, v);
