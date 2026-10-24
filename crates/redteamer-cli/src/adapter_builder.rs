@@ -3,7 +3,10 @@
 //! Target adapter instantiation and deterministic offline mock adapter.
 
 use async_trait::async_trait;
-use redteamer_adapters::{AnthropicAdapter, OllamaAdapter, OpenAiAdapter};
+use redteamer_adapters::{
+    AnthropicAdapter, AzureOpenAiAdapter, GeminiAdapter, OllamaAdapter, OpenAiAdapter,
+    OpenAiCompatibleAdapter,
+};
 use redteamer_core::error::{RedTeamerError, Result};
 use redteamer_core::traits::adapter::{
     AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, TargetAdapter,
@@ -124,6 +127,80 @@ pub fn build_adapter(
             .with_default_options(default_opts);
             Ok(Arc::new(adapter))
         }
+        "gemini" => {
+            let api_key = std::env::var("GEMINI_API_KEY")
+                .or_else(|_| std::env::var("GOOGLE_API_KEY"))
+                .map_err(|_| {
+                    RedTeamerError::InvalidConfig(
+                        "GEMINI_API_KEY or GOOGLE_API_KEY is not set".into(),
+                    )
+                })?;
+            let model = model_override
+                .map(ToOwned::to_owned)
+                .or_else(|| std::env::var("GEMINI_MODEL").ok())
+                .unwrap_or_else(|| "gemini-1.5-flash".to_owned());
+            let adapter = match base_url_override {
+                Some(url) => GeminiAdapter::with_base_url(api_key, model, url)?,
+                None => GeminiAdapter::new(api_key, model)?,
+            }
+            .with_rate_limit(rps)
+            .with_default_options(default_opts);
+            Ok(Arc::new(adapter))
+        }
+        "azure" => {
+            let api_key = std::env::var("AZURE_OPENAI_API_KEY")
+                .or_else(|_| std::env::var("AZURE_API_KEY"))
+                .map_err(|_| {
+                    RedTeamerError::InvalidConfig("AZURE_OPENAI_API_KEY is not set".into())
+                })?;
+            let endpoint = base_url_override
+                .map(ToOwned::to_owned)
+                .or_else(|| std::env::var("AZURE_OPENAI_ENDPOINT").ok())
+                .ok_or_else(|| {
+                    RedTeamerError::InvalidConfig(
+                        "AZURE_OPENAI_ENDPOINT is not set (e.g. https://my-resource.openai.azure.com)".into(),
+                    )
+                })?;
+            let deployment = model_override
+                .map(ToOwned::to_owned)
+                .or_else(|| std::env::var("AZURE_OPENAI_DEPLOYMENT").ok())
+                .or_else(|| std::env::var("AZURE_DEPLOYMENT").ok())
+                .unwrap_or_else(|| "gpt-4o-mini".to_owned());
+            let api_version = std::env::var("AZURE_OPENAI_API_VERSION")
+                .unwrap_or_else(|_| "2024-06-01".to_owned());
+            let adapter =
+                AzureOpenAiAdapter::with_api_version(api_key, endpoint, deployment, api_version)?
+                    .with_rate_limit(rps)
+                    .with_default_options(default_opts);
+            Ok(Arc::new(adapter))
+        }
+        "openrouter" => {
+            let api_key = std::env::var("OPENROUTER_API_KEY").map_err(|_| {
+                RedTeamerError::InvalidConfig("OPENROUTER_API_KEY is not set".into())
+            })?;
+            let model = model_override
+                .map(ToOwned::to_owned)
+                .or_else(|| std::env::var("OPENROUTER_MODEL").ok())
+                .unwrap_or_else(|| "openai/gpt-4o-mini".to_owned());
+            let adapter = OpenAiCompatibleAdapter::for_openrouter(api_key, model)?
+                .with_rate_limit(rps)
+                .with_default_options(default_opts);
+            Ok(Arc::new(adapter))
+        }
+        "vllm" => {
+            let model = model_override
+                .map(ToOwned::to_owned)
+                .or_else(|| std::env::var("VLLM_MODEL").ok())
+                .unwrap_or_else(|| "default".to_owned());
+            let api_key = std::env::var("VLLM_API_KEY").unwrap_or_else(|_| "none".to_owned());
+            let mut adapter = OpenAiCompatibleAdapter::for_vllm(base_url_override, model)?
+                .with_rate_limit(rps)
+                .with_default_options(default_opts);
+            if !api_key.trim().is_empty() && api_key != "none" {
+                adapter = adapter.with_api_key(api_key);
+            }
+            Ok(Arc::new(adapter))
+        }
         url if url.starts_with("http://") || url.starts_with("https://") => {
             let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "none".to_owned());
             let model = model_override
@@ -136,7 +213,7 @@ pub fn build_adapter(
             Ok(Arc::new(adapter))
         }
         _ => Err(RedTeamerError::InvalidConfig(format!(
-            "unknown target '{target}', expected one of: openai, ollama, anthropic, mock, or an http(s):// base URL"
+            "unknown target '{target}', expected one of: openai, ollama, anthropic, gemini, azure, openrouter, vllm, mock, or an http(s):// base URL"
         ))),
     }
 }
@@ -157,5 +234,59 @@ mod tests {
         .expect("url target should build");
         assert_eq!(adapter.info().name, "openai-chat");
         assert_eq!(adapter.info().model.as_deref(), Some("custom-model-v1"));
+    }
+
+    #[test]
+    fn build_adapter_supports_enterprise_targets() {
+        std::env::set_var("GEMINI_API_KEY", "mock-gemini-key");
+        let gemini = build_adapter(
+            "gemini",
+            Some("gemini-1.5-pro"),
+            None,
+            None,
+            GenerationOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(gemini.info().name, "gemini-rest");
+        assert_eq!(gemini.info().model.as_deref(), Some("gemini-1.5-pro"));
+
+        std::env::set_var("AZURE_OPENAI_API_KEY", "mock-azure-key");
+        std::env::set_var("AZURE_OPENAI_ENDPOINT", "https://mock.openai.azure.com");
+        let azure = build_adapter(
+            "azure",
+            Some("my-gpt4-deployment"),
+            None,
+            None,
+            GenerationOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(azure.info().name, "azure-openai");
+        assert_eq!(azure.info().model.as_deref(), Some("my-gpt4-deployment"));
+
+        std::env::set_var("OPENROUTER_API_KEY", "mock-openrouter-key");
+        let openrouter = build_adapter(
+            "openrouter",
+            Some("anthropic/claude-3.5-sonnet"),
+            None,
+            None,
+            GenerationOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(openrouter.info().name, "openai-compatible");
+        assert_eq!(
+            openrouter.info().model.as_deref(),
+            Some("anthropic/claude-3.5-sonnet")
+        );
+
+        let vllm = build_adapter(
+            "vllm",
+            Some("llama-3-8b"),
+            Some("http://localhost:8000/v1"),
+            None,
+            GenerationOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(vllm.info().name, "openai-compatible");
+        assert_eq!(vllm.info().model.as_deref(), Some("llama-3-8b"));
     }
 }

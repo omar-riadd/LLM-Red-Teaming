@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use uuid::Uuid;
+pub use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // OWASP LLM Top 10

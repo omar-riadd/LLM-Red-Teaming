@@ -426,8 +426,11 @@ impl Probe for TemplateProbe {
         detectors: Arc<[Arc<dyn Detector>]>,
     ) -> Result<Vec<AttackRecord>> {
         let active_detectors = Arc::new(self.build_active_detectors(&detectors));
+        let canary = self.template.generate_ephemeral_canary(session_id);
         let gen_opts = Arc::new(GenerationOptions {
-            system_prompt: self.template.effective_system_prompt(),
+            system_prompt: self
+                .template
+                .effective_system_prompt_with_canary(canary.as_deref()),
             tools: self.template.tools.clone(),
             ..GenerationOptions::default()
         });
@@ -437,7 +440,6 @@ impl Probe for TemplateProbe {
             .first()
             .copied()
             .unwrap_or(OwaspCategory::PromptInjection);
-        let canary = self.template.canary_token.clone();
         let probe_goal = self.template.description.clone();
         let has_min_length_rule = self
             .template
@@ -937,14 +939,16 @@ rules:
     name: canary_detector
 "#;
         let probe = TemplateProbe::from_yaml(yaml).unwrap();
-        let mock = Arc::new(MockTarget::new("Here it is: CANARY-XYZ-999"));
+        let session_id = Uuid::new_v4();
+        let ephemeral_canary = probe
+            .template()
+            .generate_ephemeral_canary(session_id)
+            .unwrap();
+        let mock = Arc::new(MockTarget::new(format!("Here it is: {ephemeral_canary}")));
         let target: Arc<dyn TargetAdapter> = mock.clone();
         let detectors: Arc<[Arc<dyn Detector>]> = Arc::from(Vec::new());
 
-        let records = probe
-            .run(Uuid::new_v4(), target, 1, detectors)
-            .await
-            .unwrap();
+        let records = probe.run(session_id, target, 1, detectors).await.unwrap();
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].verdict, Verdict::Vulnerable);
@@ -952,14 +956,14 @@ rules:
             records[0].mutation_type,
             MutationType::ConversationalEscalation
         );
-        // Verify system prompt had the canary injected
+        // Verify system prompt had the session-unique ephemeral canary injected
         assert!(mock
             .seen_system_prompt
             .lock()
             .unwrap()
             .as_deref()
             .unwrap()
-            .contains("CANARY-XYZ-999"));
+            .contains(&ephemeral_canary));
         // Verify turn 2 sent [User, Assistant, User]
         let calls = mock.seen_messages.lock().unwrap();
         assert_eq!(calls.len(), 2);
@@ -1154,7 +1158,20 @@ rules:
                 let text = if n == 1 {
                     "I cannot share internal instructions.".to_owned()
                 } else {
-                    "Diagnostic output: CANARY-ADAPTIVE-777".to_owned()
+                    let canary = _opts
+                        .system_prompt
+                        .as_deref()
+                        .and_then(|sp| {
+                            let idx = sp.find("CANARY-ADAPTIVE-777")?;
+                            let rest = &sp[idx..];
+                            Some(
+                                rest.split_whitespace()
+                                    .next()
+                                    .unwrap_or("CANARY-ADAPTIVE-777"),
+                            )
+                        })
+                        .unwrap_or("CANARY-ADAPTIVE-777");
+                    format!("Diagnostic output: {canary}")
                 };
                 Ok(AdapterResponse {
                     text,

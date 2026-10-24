@@ -4,15 +4,22 @@
 //! implementations for popular LLM backends, plus a config-driven factory.
 
 pub mod anthropic;
+pub mod azure;
+pub mod gemini;
 pub mod ollama;
 pub mod openai;
+pub mod openai_compatible;
 
 use redteamer_core::error::{RedTeamerError, Result};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 pub use anthropic::AnthropicAdapter;
+pub use azure::AzureOpenAiAdapter;
+pub use gemini::GeminiAdapter;
 pub use ollama::OllamaAdapter;
 pub use openai::OpenAiAdapter;
+pub use openai_compatible::OpenAiCompatibleAdapter;
 
 /// Error alias for adapter construction, matching the framework-wide
 /// error model while giving factory call sites a domain-specific name.
@@ -42,6 +49,30 @@ pub enum AdapterConfig {
         #[serde(default = "default_ollama_url")]
         base_url: String,
         model: String,
+    },
+    /// Google Gemini REST API (v1beta).
+    Gemini {
+        api_key: String,
+        model: String,
+        #[serde(default)]
+        base_url: Option<String>,
+    },
+    /// Azure OpenAI deployment.
+    Azure {
+        api_key: String,
+        endpoint: String,
+        deployment: String,
+        #[serde(default)]
+        api_version: Option<String>,
+    },
+    /// OpenAI-compatible inference server (vLLM, OpenRouter, TGI, etc.).
+    OpenAiCompatible {
+        base_url: String,
+        model: String,
+        #[serde(default)]
+        api_key: Option<String>,
+        #[serde(default)]
+        headers: HashMap<String, String>,
     },
 }
 
@@ -104,6 +135,40 @@ pub fn create_adapter(
         },
         AdapterConfig::Ollama { base_url, model } => {
             Box::new(OllamaAdapter::new(base_url.clone(), model.clone())?)
+        }
+        AdapterConfig::Gemini {
+            api_key,
+            model,
+            base_url,
+        } => match base_url {
+            Some(url) => Box::new(GeminiAdapter::with_base_url(api_key, model, url.clone())?),
+            None => Box::new(GeminiAdapter::new(api_key, model)?),
+        },
+        AdapterConfig::Azure {
+            api_key,
+            endpoint,
+            deployment,
+            api_version,
+        } => match api_version {
+            Some(ver) => Box::new(AzureOpenAiAdapter::with_api_version(
+                api_key, endpoint, deployment, ver,
+            )?),
+            None => Box::new(AzureOpenAiAdapter::new(api_key, endpoint, deployment)?),
+        },
+        AdapterConfig::OpenAiCompatible {
+            base_url,
+            model,
+            api_key,
+            headers,
+        } => {
+            let mut adapter = OpenAiCompatibleAdapter::new(base_url, model)?;
+            if let Some(key) = api_key {
+                adapter = adapter.with_api_key(key);
+            }
+            for (k, v) in headers {
+                adapter = adapter.with_header(k, v);
+            }
+            Box::new(adapter)
         }
     };
     Ok(adapter)
@@ -561,5 +626,157 @@ mod tests {
 
         let err_401 = adapter.send("hello").await.unwrap_err();
         assert!(!err_401.is_retryable());
+    }
+
+    #[tokio::test]
+    async fn gemini_adapter_http_roundtrip_and_system_instruction() {
+        let gemini_resp = serde_json::json!({
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [{"text": "Hello from Gemini model"}]
+                },
+                "finish_reason": "STOP"
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 15,
+                "candidatesTokenCount": 25
+            }
+        })
+        .to_string();
+
+        let (base_url, handle) = spawn_mock_http_server(vec![("200 OK", gemini_resp)]).await;
+
+        let adapter =
+            GeminiAdapter::with_base_url("test-gemini-key", "gemini-1.5-flash", &base_url)
+                .unwrap()
+                .with_rate_limit(100.0)
+                .with_default_options(GenerationOptions {
+                    system_prompt: Some("You are a helpful safety tester.".into()),
+                    ..GenerationOptions::default()
+                });
+
+        let resp = adapter
+            .send_chat(
+                &[ChatMessage::user("Explain AI safety")],
+                &GenerationOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.text, "Hello from Gemini model");
+        assert!(resp.completed);
+        assert_eq!(resp.metadata["prompt_tokens"], 15);
+        assert_eq!(resp.metadata["completion_tokens"], 25);
+
+        let captured = handle.await.unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0]
+            .request_line
+            .contains("/models/gemini-1.5-flash:generateContent?key=test-gemini-key"));
+        assert_eq!(
+            captured[0].body["systemInstruction"]["parts"][0]["text"],
+            "You are a helpful safety tester."
+        );
+        assert_eq!(
+            captured[0].body["contents"][0]["parts"][0]["text"],
+            "Explain AI safety"
+        );
+    }
+
+    #[tokio::test]
+    async fn azure_openai_adapter_http_roundtrip_deployment_routing_and_auth_header() {
+        let azure_resp = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "content": "Azure OpenAI deployment response"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 8
+            }
+        })
+        .to_string();
+
+        let (base_url, handle) = spawn_mock_http_server(vec![("200 OK", azure_resp)]).await;
+
+        let adapter = AzureOpenAiAdapter::with_api_version(
+            "azure-secret-42",
+            &base_url,
+            "gpt-4o-prod",
+            "2024-06-01",
+        )
+        .unwrap()
+        .with_rate_limit(100.0);
+
+        let resp = adapter
+            .send_chat(
+                &[ChatMessage::user("Verify Azure deployment")],
+                &GenerationOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.text, "Azure OpenAI deployment response");
+        assert!(resp.completed);
+        assert_eq!(resp.metadata["prompt_tokens"], 12);
+
+        let captured = handle.await.unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0]
+            .request_line
+            .contains("/openai/deployments/gpt-4o-prod/chat/completions?api-version=2024-06-01"));
+        assert!(captured[0]
+            .headers_lower
+            .contains("api-key: azure-secret-42"));
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_adapter_openrouter_custom_headers_and_vllm() {
+        let openrouter_resp = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "content": "OpenRouter routing response"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 30,
+                "completion_tokens": 10
+            }
+        })
+        .to_string();
+
+        let (base_url, handle) = spawn_mock_http_server(vec![("200 OK", openrouter_resp)]).await;
+
+        let adapter = OpenAiCompatibleAdapter::new(&base_url, "meta-llama/llama-3.3-70b")
+            .unwrap()
+            .with_api_key("sk-or-test-key")
+            .with_header("HTTP-Referer", "https://github.com/redteamer/llm-redteamer")
+            .with_header("X-Title", "llm-redteamer")
+            .with_rate_limit(100.0);
+
+        let resp = adapter
+            .send_chat(
+                &[ChatMessage::user("Test OpenRouter headers")],
+                &GenerationOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.text, "OpenRouter routing response");
+        assert!(resp.completed);
+
+        let captured = handle.await.unwrap();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0]
+            .headers_lower
+            .contains("authorization: bearer sk-or-test-key"));
+        assert!(captured[0]
+            .headers_lower
+            .contains("http-referer: https://github.com/redteamer/llm-redteamer"));
+        assert!(captured[0].headers_lower.contains("x-title: llm-redteamer"));
     }
 }

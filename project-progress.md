@@ -135,4 +135,19 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
 - [x] **19.3** Expanded `default_semantic_references()` from 7 to 35 calibrated phrases covering all 10 OWASP categories and nuanced refusal phrasing.
 - [x] **19.4** Wired `with_override` in `CvssLlmComputer` to CVSS v4.0 Threat Metrics (`/E:A` for $\ge 1.1$, `/E:P` for $\le 0.9$) and added unit test. Total workspace test count: 76 passing.
 
+---
 
+## Phase 20 — Ephemeral Canaries & Dynamic CVSS Calibration
+- [x] **20.1** Implemented session-unique ephemeral canary generator (`generate_ephemeral_canary` and `effective_system_prompt_with_canary`) in `redteamer-payload` and `redteamer-probes`, eliminating cross-session false positives while automatically propagating dynamic tokens to system prompts, single-turn attacks, multi-turn conversations, and PAIR tree search evaluations.
+- [x] **20.2** Implemented Shannon byte entropy calculator (`shannon_entropy`) and dynamic CVSS v4.0 calibrator in `owasp_mapper.rs`, automatically incorporating conversational turn depth (`AC:H` for multi-turn chains $\ge 2$) and escalating confidentiality impact (`VC:H` and `SC:H`) when high-entropy cryptographic material, tokens, or dense secrets ($H \ge 4.5$) are exfiltrated.
+- [x] **20.3** Added unit tests for ephemeral canary generation, canary extraction in mock targets, Shannon entropy discrimination, and dynamic CVSS vector calibration.
+
+---
+
+## Phase 21 — Enterprise Target Adapter Expansion
+- [x] **21.1** Implemented `GeminiAdapter` in `crates/redteamer-adapters/src/gemini.rs` for Google Gemini REST API (v1beta `generateContent`), with `contents` role mapping (`user` / `model`), `systemInstruction`, usage metadata extraction, and safety finish reason tracking.
+- [x] **21.2** Implemented `AzureOpenAiAdapter` in `crates/redteamer-adapters/src/azure.rs` supporting deployment-based endpoint routing (`{endpoint}/openai/deployments/{deployment}/chat/completions`) and `api-key` header authentication.
+- [x] **21.3** Implemented `OpenAiCompatibleAdapter` in `crates/redteamer-adapters/src/openai_compatible.rs` for generic inference gateways (vLLM, OpenRouter, TGI, LocalAI), with specialized presets `for_openrouter` (`HTTP-Referer` and `X-Title` attribution) and `for_vllm`.
+- [x] **21.4** Integrated `gemini`, `azure`, `openrouter`, and `vllm` target providers into `create_adapter` factory and CLI `adapter_builder.rs`. Documented provider environment variables in `README.md`.
+- [x] **21.5** Added mock HTTP server integration tests in `crates/redteamer-adapters/src/lib.rs` verifying wire protocols, header formats, and payload parsing for Gemini, Azure, and OpenRouter/vLLM.
+- [x] **21.6** Full verification: all 84 workspace tests passing, 0 clippy warnings, zero cargo deny advisories.

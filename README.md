@@ -54,10 +54,19 @@ graph TD
 
 > **Scope Note (`direct` vs `proxy`):** Categories marked `direct` test intrinsic prompt/response vulnerabilities directly. Categories marked `proxy` evaluate behavioral susceptibility (e.g., recommending unverified artifacts in `LLM03`, responding to backdoor triggers in `LLM04`, or violating simulated RAG tenant boundaries in `LLM08`).
 
-## Requirements
+## Requirements & Target Providers
 
 - **Rust** `1.88` or newer (`rust-version = "1.88"` in `Cargo.toml`, tested in CI against `1.88` and `stable`).
-- Optional: **Ollama** (`ollama serve` + `ollama pull llama3.2`), or an `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` for cloud targets.
+- Supported Target Providers:
+  - **OpenAI**: `--target openai` (reads `OPENAI_API_KEY`)
+  - **Anthropic**: `--target anthropic` (reads `ANTHROPIC_API_KEY`)
+  - **Google Gemini**: `--target gemini` (reads `GEMINI_API_KEY` or `GOOGLE_API_KEY`)
+  - **Azure OpenAI**: `--target azure` (reads `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, and `AZURE_OPENAI_DEPLOYMENT`)
+  - **OpenRouter**: `--target openrouter` (reads `OPENROUTER_API_KEY`)
+  - **vLLM / Local Inference**: `--target vllm` (reads `VLLM_BASE_URL` or defaults to `http://localhost:8000/v1`)
+  - **Ollama**: `--target ollama` (`ollama serve` + `ollama pull llama3.2`)
+  - **Mock / Offline Testing**: `--target mock`
+  - **Custom Gateway**: `--target http(s)://...`
 
 ## Quickstart
 
