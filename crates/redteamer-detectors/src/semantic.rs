@@ -17,6 +17,11 @@ use tokenizers::Tokenizer;
 ///
 /// Far more robust than substring matching against paraphrased leaks, at
 /// the cost of one inference per response.
+/// Relative workspace subpath to the bundled ONNX sentence-transformer model.
+pub const BUILTIN_MODEL_SUBPATH: &str = "models/all-MiniLM-L6-v2/model.onnx";
+/// Relative workspace subpath to the bundled Hugging Face tokenizer file.
+pub const BUILTIN_TOKENIZER_SUBPATH: &str = "models/all-MiniLM-L6-v2/tokenizer.json";
+
 pub struct SemanticDetector {
     name: String,
     description: String,
@@ -28,6 +33,47 @@ pub struct SemanticDetector {
 }
 
 impl SemanticDetector {
+    /// Attempts to locate the bundled model or tokenizer file, checking current directory,
+    /// parent directories, and the executable's directory.
+    #[must_use]
+    pub fn resolve_builtin_path(subpath: &str) -> Option<std::path::PathBuf> {
+        let direct = std::path::PathBuf::from(subpath);
+        if direct.exists() {
+            return Some(direct);
+        }
+        if let Ok(current) = std::env::current_dir() {
+            let candidate = current.join(subpath);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+            if let Some(p1) = current.parent() {
+                let candidate2 = p1.join(subpath);
+                if candidate2.exists() {
+                    return Some(candidate2);
+                }
+                if let Some(p2) = p1.parent() {
+                    let candidate3 = p2.join(subpath);
+                    if candidate3.exists() {
+                        return Some(candidate3);
+                    }
+                }
+            }
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                let candidate = parent.join("../../").join(subpath);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+                let candidate2 = parent.join("../../../").join(subpath);
+                if candidate2.exists() {
+                    return Some(candidate2);
+                }
+            }
+        }
+        None
+    }
+
     /// Loads an ONNX sentence-transformer plus its HF tokenizer.
     ///
     /// # Errors

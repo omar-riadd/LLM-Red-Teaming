@@ -101,10 +101,10 @@
 - [x] **13.4** Updated `detection_eval.rs` with 15 new labeled cases (70 cases total) asserting 100% precision and recall; updated `cli_integration.rs` counts. Full scan record count grew from 243 to 1,361.
 
 ### Phase 14 — Bundled `all-MiniLM-L6-v2` Semantic Model (GA3)
-- [ ] **14.1** Download + vendor model to `models/all-MiniLM-L6-v2/`
-- [ ] **14.2** Add `--semantic-model=builtin` shorthand to CLI
-- [ ] **14.3** Document semantic detection in `README.md`
-- [ ] **14.4** Add `#[ignore]` offline semantic detector test
+- [x] **14.1** Download + vendor model to `models/all-MiniLM-L6-v2/` (`model.onnx` ignored, `tokenizer.json` and `download_model.sh` tracked).
+- [x] **14.2** Added `--semantic-model=builtin` shorthand in `crates/redteamer-cli/src/main.rs` with automatic tokenizer path resolution.
+- [x] **14.3** Documented semantic detection in `README.md` with usage instructions, download helper script, and custom model guidelines.
+- [x] **14.4** Added offline semantic detector integration test `crates/redteamer-detectors/tests/semantic_offline.rs` verifying refusal and jailbreak detection against bundled ONNX weights.
 
 ### Phase 15 — Property Tests, Fuzz Targets, Judge Eval (GA5, GA11, GA14)
 - [ ] **15.1** `proptest` for `MutationPipeline` (3 properties)

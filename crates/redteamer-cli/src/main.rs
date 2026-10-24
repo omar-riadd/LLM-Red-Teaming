@@ -110,11 +110,11 @@ struct ScanArgs {
     #[arg(long)]
     attacker_model: Option<String>,
 
-    /// Optional ONNX model path to enable `SemanticDetector`.
+    /// Optional ONNX model path to enable `SemanticDetector` (or "builtin" for bundled all-MiniLM-L6-v2).
     #[arg(long)]
     semantic_model: Option<PathBuf>,
 
-    /// Optional HuggingFace `tokenizer.json` path to enable `SemanticDetector`.
+    /// Optional HuggingFace `tokenizer.json` path to enable `SemanticDetector` (automatically resolved if --semantic-model=builtin).
     #[arg(long)]
     semantic_tokenizer: Option<PathBuf>,
 
@@ -373,7 +373,39 @@ async fn run_scan(args: ScanArgs) -> Result<bool> {
         )));
     }
     match (&args.semantic_model, &args.semantic_tokenizer) {
-        (Some(model_path), Some(tokenizer_path)) => {
+        (Some(model_arg), maybe_tok) => {
+            let (model_path, tokenizer_path) = if model_arg.to_string_lossy() == "builtin" {
+                let m = redteamer_detectors::SemanticDetector::resolve_builtin_path(
+                    redteamer_detectors::BUILTIN_MODEL_SUBPATH,
+                )
+                .ok_or_else(|| {
+                    RedTeamerError::InvalidConfig(
+                        "builtin semantic model not found; please run 'models/all-MiniLM-L6-v2/download_model.sh'"
+                            .into(),
+                    )
+                })?;
+                let t = match maybe_tok {
+                    Some(tok_path) if tok_path.to_string_lossy() != "builtin" => tok_path.clone(),
+                    _ => redteamer_detectors::SemanticDetector::resolve_builtin_path(
+                        redteamer_detectors::BUILTIN_TOKENIZER_SUBPATH,
+                    )
+                    .ok_or_else(|| {
+                        RedTeamerError::InvalidConfig(
+                            "builtin semantic tokenizer not found; please run 'models/all-MiniLM-L6-v2/download_model.sh'"
+                                .into(),
+                        )
+                    })?,
+                };
+                (m, t)
+            } else {
+                let Some(tok_path) = maybe_tok else {
+                    return Err(RedTeamerError::InvalidConfig(
+                        "--semantic-model and --semantic-tokenizer must both be provided together (unless --semantic-model=builtin)".into(),
+                    ));
+                };
+                (model_arg.clone(), tok_path.clone())
+            };
+
             let sem = redteamer_detectors::SemanticDetector::new(
                 "semantic",
                 "ONNX sentence-transformer semantic detector",
@@ -383,9 +415,9 @@ async fn run_scan(args: ScanArgs) -> Result<bool> {
             )?;
             detectors.push(Arc::new(sem));
         }
-        (Some(_), None) | (None, Some(_)) => {
+        (None, Some(_)) => {
             return Err(RedTeamerError::InvalidConfig(
-                "--semantic-model and --semantic-tokenizer must both be provided together".into(),
+                "--semantic-tokenizer provided without --semantic-model".into(),
             ));
         }
         (None, None) => {}

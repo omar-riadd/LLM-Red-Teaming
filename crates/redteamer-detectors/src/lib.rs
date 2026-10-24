@@ -16,7 +16,7 @@ pub use llm_judge::{JudgeVerdict, LlmJudgeDetector};
 pub use normalize::normalize_response_variants;
 pub use pipeline::DetectorPipeline;
 pub use regex_set::RegexSetDetector;
-pub use semantic::SemanticDetector;
+pub use semantic::{SemanticDetector, BUILTIN_MODEL_SUBPATH, BUILTIN_TOKENIZER_SUBPATH};
 pub use string_match::StringMatchDetector;
 
 use async_trait::async_trait;

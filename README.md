@@ -84,7 +84,25 @@ cargo run -p redteamer-cli -- scan --target mock --fail-on high --format json --
 
 # 7. Compare two JSON scan reports for per-probe ASR & finding-level regressions
 cargo run -p redteamer-cli -- diff baseline.json current.json --fail-on-regression
+
+# 8. Run scan with bundled ONNX sentence-transformer semantic detector
+cargo run -p redteamer-cli -- scan --target mock --semantic-model builtin --semantic-threshold 0.78
 ```
+
+## Semantic Detection
+
+`llm-redteamer` features an offline, embedding-based `SemanticDetector` powered by ONNX Runtime (`ort`). It encodes target responses into mean-pooled, L2-normalized dense embeddings and measures cosine similarity against a calibrated reference corpus of known-vulnerable and refusal phrasing.
+
+- **Bundled Model**: `sentence-transformers/all-MiniLM-L6-v2` (Apache-2.0 license).
+- **Out-of-the-Box**: Pass `--semantic-model builtin` (automatically resolves `models/all-MiniLM-L6-v2/model.onnx` and its HuggingFace tokenizer).
+- **Download Helper**: If setting up on a fresh machine without pre-downloaded weights, execute:
+  ```bash
+  ./models/all-MiniLM-L6-v2/download_model.sh
+  ```
+- **Custom Models**: Bring your own sentence-transformer ONNX export and tokenizer:
+  ```bash
+  cargo run -p redteamer-cli -- scan --target ollama --semantic-model path/to/model.onnx --semantic-tokenizer path/to/tokenizer.json --semantic-threshold 0.80
+  ```
 
 ## Development & Verification
 
