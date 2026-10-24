@@ -11,6 +11,7 @@ pub mod dpo;
 pub mod html;
 pub mod markdown;
 pub mod owasp_mapper;
+pub mod pdf;
 pub mod sarif;
 
 use redteamer_core::error::RedTeamerError;
@@ -23,6 +24,7 @@ pub use dpo::{DpoExporter, DpoPair, ShareGptDpoEntry};
 pub use html::HtmlExporter;
 pub use markdown::MarkdownExporter;
 pub use owasp_mapper::CvssLlmComputer;
+pub use pdf::PdfExporter;
 pub use sarif::SarifExporter;
 
 /// Where an exporter writes its artifact.
@@ -35,7 +37,7 @@ pub enum OutputSink {
 }
 
 impl OutputSink {
-    /// Emits rendered bytes to this sink.
+    /// Emits rendered text to this sink.
     ///
     /// # Errors
     /// File I/O failures surface as [`RedTeamerError::Report`].
@@ -49,6 +51,24 @@ impl OutputSink {
                     .map_err(|e| RedTeamerError::Report(format!("stdout write failed: {e}")))
             }
             Self::File(path) => std::fs::write(path, contents).map_err(|e| {
+                RedTeamerError::Report(format!("write to {} failed: {e}", path.display()))
+            }),
+        }
+    }
+
+    /// Emits raw binary bytes to this sink.
+    ///
+    /// # Errors
+    /// File I/O failures surface as [`RedTeamerError::Report`].
+    pub(crate) fn write_bytes(&self, bytes: &[u8]) -> Result<()> {
+        match self {
+            Self::Stdout => {
+                use std::io::Write;
+                let mut out = std::io::stdout().lock();
+                out.write_all(bytes)
+                    .map_err(|e| RedTeamerError::Report(format!("stdout write failed: {e}")))
+            }
+            Self::File(path) => std::fs::write(path, bytes).map_err(|e| {
                 RedTeamerError::Report(format!("write to {} failed: {e}", path.display()))
             }),
         }
@@ -70,6 +90,7 @@ pub fn exporter_factory(format: ReportFormat, sink: OutputSink) -> Result<Box<dy
         ReportFormat::Sarif => Ok(Box::new(SarifExporter::new(sink))),
         ReportFormat::Csv => Ok(Box::new(CsvExporter::new(sink))),
         ReportFormat::Dpo => Ok(Box::new(DpoExporter::new(sink))),
+        ReportFormat::Pdf => Ok(Box::new(PdfExporter::new(sink))),
     }
 }
 
@@ -154,16 +175,18 @@ mod tests {
             (ReportFormat::Sarif, "sarif", "\"locations\""),
             (ReportFormat::Csv, "csv", "session_id,record_id,probe_name"),
             (ReportFormat::Dpo, "json", "\"chosen\""),
+            (ReportFormat::Pdf, "pdf", "%PDF-1.4"),
         ] {
             let path = tmp_dir.join(format!("report.{ext}"));
             let exporter = exporter_factory(fmt, OutputSink::File(path.clone())).unwrap();
             assert_eq!(exporter.format(), fmt);
             let count = exporter.export(&ctx).await.unwrap();
             assert_eq!(count, 1);
-            let content = std::fs::read_to_string(&path).unwrap();
+            let content = std::fs::read(&path).unwrap();
+            let content_str = String::from_utf8_lossy(&content);
             assert!(
-                content.contains(expected_substr),
-                "format {fmt:?} missing {expected_substr} in {content}"
+                content_str.contains(expected_substr),
+                "format {fmt:?} missing {expected_substr} in artifact"
             );
         }
 

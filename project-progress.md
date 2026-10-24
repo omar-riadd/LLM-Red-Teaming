@@ -239,4 +239,32 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
   - `cargo fmt --all -- --check` 100% clean.
   - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
 
+---
+
+## Phase 26 — Executive Document Exporters: Native PDF 1.4 Deliverables (FG1)
+- [x] **26.1** Added `ReportFormat::Pdf` to `ReportFormat` in `crates/redteamer-core/src/traits/reporter.rs`.
+- [x] **26.2** Implemented pure-Rust, zero-dependency executive PDF 1.4 document engine in `crates/redteamer-reporters/src/pdf.rs`:
+  - Standalone PDF 1.4 standard Type 1 fonts (`/Helvetica`, `/Helvetica-Bold`, `/Courier`), text stream operators, rectangle fill/stroke operators, text escaping, text wrapping, cross-reference table (`xref`), and trailer.
+  - Full CISO executive structure: Deep navy title banner, assessment metadata block (target, session ID, model, evaluation date, evaluated attack count), 5-card CVSS severity distribution scorecard (Critical, High, Medium, Low, Resistant), executive narrative summary, OWASP Top 10 for LLM (2025) compliance matrix table, top vulnerability findings with CVSS vector and payload proof-of-concept excerpts, prioritized 4-step strategic remediation roadmap, and dynamic page numbering ("Page X of Y") with header/footer rules on every page.
+  - Implemented `PdfExporter` implementing `ReportExporter`.
+- [x] **26.3** Extended `crates/redteamer-reporters/src/lib.rs`:
+  - Added `OutputSink::write_bytes(&self, bytes: &[u8])` supporting raw binary file and stdout writes.
+  - Exposed `pub mod pdf;` and `pub use pdf::PdfExporter;`.
+  - Registered `ReportFormat::Pdf` in `exporter_factory`.
+  - Updated reporter unit test `all_six_exporters_render_valid_artifacts` to cover all 8 formats including `ReportFormat::Pdf`.
+- [x] **26.4** Added native PDF integration test in `crates/redteamer-reporters/tests/pdf_snapshot.rs` verifying valid PDF 1.4 header, high-order binary comments, object catalog, fonts, scorecard content, OWASP matrix, roadmap, xref table, and EOF trailer.
+- [x] **26.5** Wired `--format pdf` and companion `--export-pdf <PATH>` into `crates/redteamer-cli/src/cmd/scan.rs`:
+  - Added `Pdf` to `OutputFormat` enum and `From<OutputFormat>` conversion.
+  - Added `#[arg(long)] pub export_pdf: Option<PathBuf>` to `ScanArgs`.
+  - Added companion export execution writing executive PDF deliverable alongside primary output format.
+- [x] **26.6** Updated CLI integration test suite in `crates/redteamer-cli/tests/cli_integration.rs`:
+  - Updated `scan_all_eight_formats_and_fail_on_exit_code` to test all 8 formats (`pdf` asserting `%PDF-1.4`).
+  - Added `scan_with_export_pdf_writes_valid_document` testing `--export-pdf`.
+- [x] **26.7** Full Workspace Verification:
+  - All 101 tests passing (`cargo test --workspace --offline` across 8 crates, 9 integration suites, and 4 doc-tests).
+  - Clippy `-D warnings` 100% clean (0 warnings, 0 errors).
+  - `cargo fmt --all -- --check` 100% clean.
+  - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
+  - Live CLI scan verified with `pdfinfo` and `pdftotext` confirming 2-page valid PDF 1.4 document.
+
 

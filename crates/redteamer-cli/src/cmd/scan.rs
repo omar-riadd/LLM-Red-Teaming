@@ -98,6 +98,10 @@ pub struct ScanArgs {
     #[arg(long)]
     pub export_dpo: Option<PathBuf>,
 
+    /// Optional file path to export an executive PDF report deliverable.
+    #[arg(long)]
+    pub export_pdf: Option<PathBuf>,
+
     /// Stream each completed AttackRecord as a JSONL line to this file as it finishes.
     #[arg(long)]
     pub stream_jsonl: Option<PathBuf>,
@@ -132,6 +136,7 @@ pub enum OutputFormat {
     Sarif,
     Csv,
     Dpo,
+    Pdf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -163,6 +168,7 @@ impl From<OutputFormat> for ReportFormat {
             OutputFormat::Sarif => Self::Sarif,
             OutputFormat::Csv => Self::Csv,
             OutputFormat::Dpo => Self::Dpo,
+            OutputFormat::Pdf => Self::Pdf,
         }
     }
 }
@@ -505,6 +511,17 @@ pub async fn run_scan(args: ScanArgs) -> Result<bool> {
             "dpo dataset exported | {} preference pairs written to {}",
             pairs_count,
             dpo_path.display()
+        );
+    }
+
+    if let Some(pdf_path) = args.export_pdf {
+        let pdf_sink = redteamer_reporters::OutputSink::File(pdf_path.clone());
+        let pdf_exporter = redteamer_reporters::PdfExporter::new(pdf_sink);
+        let findings_count = pdf_exporter.export(&report_ctx).await?;
+        eprintln!(
+            "executive pdf report exported | {} findings documented in {}",
+            findings_count,
+            pdf_path.display()
         );
     }
 

@@ -15,7 +15,7 @@ graph TD
   Probes --> Detectors["redteamer-detectors<br/>DetectorPipeline (string, regex, canary, length, judge, semantic)"]
   Orchestrator --> Report["ScanReport<br/>records: Vec&lt;AttackRecord&gt;"]
   Report --> Reporters["redteamer-reporters<br/>CvssLlmComputer + exporter_factory"]
-  Reporters --> Sink["OutputSink<br/>Stdout / File (json, jsonl, md, html, sarif, csv, dpo)"]
+  Reporters --> Sink["OutputSink<br/>Stdout / File (json, jsonl, md, html, sarif, csv, dpo, pdf)"]
   Core["redteamer-core<br/>types, traits, error, CVSS v4.0"] -. defines .-> CLI
   Core -. defines .-> Orchestrator
   Core -. defines .-> Probes
@@ -34,8 +34,8 @@ graph TD
 | `redteamer-detectors` | Concurrent `DetectorPipeline` with pre-detection response de-obfuscation (`zero-width`, `Base64`, `Hex`, `ROT13`), `StringMatchDetector` (SIMD `memchr`), `RegexSetDetector`, `CanaryDetector`, `LengthDetector`, `ToolCallDetector`, `LlmJudgeDetector`, and ONNX Runtime `SemanticDetector`. |
 | `redteamer-probes` | Unified `TemplateProbe` engine embedding all 11 OWASP LLM 2025 templates (`templates/llm01_*.yaml` – `templates/llm10_*.yaml`), stateful PAIR tree search attacker loop, and custom directory loading (`--probes-dir`). |
 | `redteamer-orchestrator` | Concurrent campaign runner (`ScanBuilder`, `ScanConfig`, `ScanReport`) with global concurrency semaphore, per-request progress callbacks, live JSONL streaming, and checkpoint resume. |
-| `redteamer-reporters` | Dynamic CVSS v4.0 computer (`CvssLlmComputer::compute_for_mutation`), per-probe ASR calculator, token/latency (`p50`/`p95`) telemetry, and 7 exporters (`Json`, `Jsonl`, `Markdown`, `Html`, `Sarif` v2.1.0, RFC 4180 `Csv`, and `DpoExporter` for automated RLHF preference datasets). |
-| `redteamer-cli` | `llm-redteamer` binary (`scan`, `list`, `diff`, `health`) with `stderr` progress/telemetry, live JSONL streaming (`--stream-jsonl`), real-time token streaming (`--stream`), DPO dataset export (`--export-dpo`), crash recovery (`--resume`), adaptive attacker (`--attacker-target`), and CI quality gates (`--fail-on`, `--fail-on-regression`). |
+| `redteamer-reporters` | Dynamic CVSS v4.0 computer (`CvssLlmComputer::compute_for_mutation`), per-probe ASR calculator, token/latency (`p50`/`p95`) telemetry, and 8 exporters (`Json`, `Jsonl`, `Markdown`, `Html`, `Sarif` v2.1.0, RFC 4180 `Csv`, `DpoExporter` for automated RLHF preference datasets, and `PdfExporter` for executive CISO deliverables). |
+| `redteamer-cli` | `llm-redteamer` binary (`scan`, `list`, `diff`, `health`) with `stderr` progress/telemetry, live JSONL streaming (`--stream-jsonl`), real-time token streaming (`--stream`), DPO dataset export (`--export-dpo`), executive PDF export (`--export-pdf`), crash recovery (`--resume`), adaptive attacker (`--attacker-target`), and CI quality gates (`--fail-on`, `--fail-on-regression`). |
 
 ## OWASP Top 10 for LLM Applications (2025) Coverage
 
@@ -92,16 +92,19 @@ cargo run -p redteamer-cli -- scan --target mock --probes llm01_prompt_injection
 # 6. Export automated DPO / RLHF preference dataset alongside markdown report
 cargo run -p redteamer-cli -- scan --target mock --export-dpo dpo_dataset.json --format markdown
 
-# 7. Run adaptive multi-turn evaluations with a secondary attacker model (stateful PAIR tree search)
+# 7. Export executive PDF report deliverable with scorecard, OWASP matrix & roadmap
+cargo run -p redteamer-cli -- scan --target mock --probes llm01_prompt_injection --format markdown --export-pdf executive_report.pdf
+
+# 8. Run adaptive multi-turn evaluations with a secondary attacker model (stateful PAIR tree search)
 cargo run -p redteamer-cli -- scan --target ollama --model llama3.2 --attacker-target ollama --attacker-model llama3.2 --format html --output report.html
 
-# 8. Enforce a CI quality gate (exits with code 2 if any High/Critical finding occurs)
+# 9. Enforce a CI quality gate (exits with code 2 if any High/Critical finding occurs)
 cargo run -p redteamer-cli -- scan --target mock --fail-on high --format json --output current.json
 
-# 9. Compare two JSON scan reports for per-probe ASR & finding-level regressions
+# 10. Compare two JSON scan reports for per-probe ASR & finding-level regressions
 cargo run -p redteamer-cli -- diff baseline.json current.json --fail-on-regression
 
-# 10. Run scan with bundled ONNX sentence-transformer semantic detector
+# 11. Run scan with bundled ONNX sentence-transformer semantic detector
 cargo run -p redteamer-cli -- scan --target mock --semantic-model builtin --semantic-threshold 0.78
 ```
 

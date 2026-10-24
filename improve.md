@@ -1,7 +1,7 @@
 # improve.md — Evolution & Future Roadmap for `llm-redteamer`
 
-> Status: **PHASES 0–25 COMPLETED & VERIFIED (v0.3, v0.4, v0.4.1 Hardened, Phase 23 MCP, Phase 24 DPO, Phase 25 Streaming Early Termination).**
-> Current Baseline: 99 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean.
+> Status: **PHASES 0–26 COMPLETED & VERIFIED (v0.3, v0.4, v0.4.1 Hardened, Phase 23 MCP, Phase 24 DPO, Phase 25 Streaming, Phase 26 Executive PDF Exporter).**
+> Current Baseline: 101 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean.
 > Session rules active: read files in full (100% of lines), update `project-progress.md` after each task, verify with real commands, maintain offline builds.
 
 ---
@@ -244,6 +244,7 @@ All 22 implementation phases are 100% complete and verified:
   - Phase 23 (FG4): Model Context Protocol (MCP) server attacks: `McpAdapter` supporting HTTP & Stdio transports, JSON-RPC 2.0 handshake (`initialize`), tool discovery (`tools/list`), tool attack execution (`tools/call`), and `health_check`.
   - Phase 24 (FG5): Automated DPO / RLHF Dataset Exporter: `DpoExporter` extracting aligned `DpoPair` and `ShareGptDpoEntry` structures (`--format dpo` and `--export-dpo <PATH>`).
   - Phase 25 (FG3): Real-Time Streaming Early Termination: `StreamAccumulator` and `consume_stream` via SSE / JSON chunks across OpenAI, Anthropic, and Ollama, truncating responses upon canary extraction to conserve tokens (`--stream`).
+  - Phase 26 (FG1): Executive Document Exporters (Native PDF 1.4 Deliverables): Pure-Rust zero-dependency PDF 1.4 generator rendering deep navy title banner, metadata block, 5-card CVSS severity distribution scorecard, executive narrative summary, OWASP Top 10 for LLM (2025) compliance matrix, key findings with PoC payload excerpts, prioritized remediation roadmap, and dynamic page numbering ("Page X of Y") with header/footer pagination rules (`--format pdf` and `--export-pdf <PATH>`).
 
 ---
 
@@ -251,7 +252,7 @@ All 22 implementation phases are 100% complete and verified:
 
 | ID | Future Opportunity / Gap | Value & Impact |
 |---|---|---|
-| **FG1** | **Executive Document Exporters (DOCX / PDF)** | Provide professional styled penetration testing deliverables for CISO/executive review alongside developer-oriented HTML and Markdown. |
+| **FG1** | **Executive Document Exporters (PDF)** | `[COMPLETED - Phase 26]` Pure-Rust native PDF 1.4 executive deliverable exporter with scorecard, OWASP matrix, PoC findings, roadmap, and pagination (`--format pdf` / `--export-pdf`). |
 | **FG2** | **Distributed Worker Pool / Multi-IP Rotation** | Coordinate multiple agent containers or IP proxy rotation pools for massive enterprise model audits without triggering cloud gateway IP rate limits. |
 | **FG3** | **Real-Time Streaming Early Termination** | `[COMPLETED - Phase 25]` Inspect streaming tokens via Server-Sent Events (SSE) and terminate jailbroken responses immediately upon canary extraction, conserving API tokens. |
 | **FG4** | **Model Context Protocol (MCP) Server Attacks** | `[COMPLETED - Phase 23]` Native `McpAdapter` with HTTP & Stdio transports, tool discovery, and `tools/call` execution. |

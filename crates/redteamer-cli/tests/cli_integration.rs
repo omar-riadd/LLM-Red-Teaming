@@ -55,7 +55,7 @@ fn list_probes_and_detectors_succeed() {
 }
 
 #[test]
-fn scan_all_seven_formats_and_fail_on_exit_code() {
+fn scan_all_eight_formats_and_fail_on_exit_code() {
     for (fmt, expected_marker) in [
         ("json", "\"findings\""),
         ("jsonl", "\"probe_name\":\"llm01_prompt_injection\""),
@@ -64,6 +64,7 @@ fn scan_all_seven_formats_and_fail_on_exit_code() {
         ("sarif", "\"version\": \"2.1.0\""),
         ("csv", "session_id,record_id,probe_name"),
         ("dpo", "\"chosen\""),
+        ("pdf", "%PDF-1.4"),
     ] {
         let out = cli_bin()
             .args([
@@ -277,4 +278,38 @@ fn scan_with_stream_flag_executes_successfully() {
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("\"stream\": true"));
+}
+
+#[test]
+fn scan_with_export_pdf_writes_valid_document() {
+    let temp_dir = std::env::temp_dir().join(format!("redteamer_pdf_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).expect("failed to create temp test dir");
+
+    let pdf_file = temp_dir.join("executive_report.pdf");
+    let out = cli_bin()
+        .args([
+            "scan",
+            "--target",
+            "mock",
+            "--probes",
+            "llm01_prompt_injection",
+            "--format",
+            "markdown",
+            "--export-pdf",
+            pdf_file.to_str().unwrap(),
+        ])
+        .output()
+        .expect("scan with export-pdf failed to run");
+
+    assert!(out.status.success());
+    assert!(pdf_file.exists(), "executive_report.pdf was not created");
+
+    let bytes = fs::read(&pdf_file).expect("failed to read pdf export");
+    assert!(bytes.starts_with(b"%PDF-1.4\n"));
+    let pdf_str = String::from_utf8_lossy(&bytes);
+    assert!(pdf_str.contains("LLM SECURITY RED-TEAM ASSESSMENT"));
+    assert!(pdf_str.trim_end().ends_with("%%EOF"));
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }
