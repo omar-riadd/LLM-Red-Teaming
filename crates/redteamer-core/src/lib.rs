@@ -18,9 +18,10 @@ pub use error::RedTeamerError;
 /// Convenient prelude re-exporting the most commonly used items.
 pub mod prelude {
     pub use crate::error::RedTeamerError;
-    pub use crate::traits::adapter::TargetAdapter;
-    pub use crate::traits::detector::Detector;
+    pub use crate::traits::adapter::{ChatMessage, GenerationOptions, Role, TargetAdapter};
+    pub use crate::traits::detector::{DetectContext, Detector};
     pub use crate::traits::probe::Probe;
-    pub use crate::traits::reporter::ReportExporter;
+    pub use crate::traits::reporter::{ReportContext, ReportExporter, ReportFormat};
     pub use crate::types::*;
 }
+

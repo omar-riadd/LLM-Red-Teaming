@@ -1,11 +1,11 @@
 // crates/redteamer-detectors/src/pipeline.rs
 
 use redteamer_core::error::Result;
-use redteamer_core::traits::detector::Detector;
-use redteamer_core::types::DetectionOutcome;
+use redteamer_core::traits::detector::{DetectContext, Detector};
+use redteamer_core::types::{DetectionOutcome, DetectorPolarity};
 use std::sync::Arc;
 
-/// Composes several detectors and evaluates a single `(prompt, response)`
+/// Composes several detectors and evaluates a single [`DetectContext`]
 /// exchange against all of them concurrently.
 ///
 /// Each detector runs in its own tokio task via [`JoinSet`]; a panicking
@@ -56,7 +56,7 @@ impl DetectorPipeline {
         self.detectors.is_empty()
     }
 
-    /// Runs every registered detector concurrently.
+    /// Runs every registered detector concurrently over `ctx`.
     ///
     /// Returns one [`DetectionOutcome`] per detector, in *registration
     /// order* (not completion order) so downstream consumers see stable
@@ -65,17 +65,17 @@ impl DetectorPipeline {
     /// # Errors
     /// Never fails structurally; individual detector failures are encoded
     /// as non-matching outcomes with `confidence: 0.0`.
-    pub async fn run(&self, prompt: &str, response: Option<&str>) -> Result<Vec<DetectionOutcome>> {
+    pub async fn run(&self, ctx: &DetectContext) -> Result<Vec<DetectionOutcome>> {
         let mut tasks = tokio::task::JoinSet::new();
+        let shared_ctx = Arc::new(ctx.clone());
 
         for (index, detector) in self.detectors.iter().enumerate() {
             let detector = Arc::clone(detector);
-            let prompt = prompt.to_owned();
-            let response = response.map(str::to_owned);
+            let ctx_clone = Arc::clone(&shared_ctx);
             let name = detector.name().to_owned();
 
             tasks.spawn(async move {
-                (index, name, detector.detect(&prompt, response.as_deref()).await)
+                (index, name, detector.detect(&ctx_clone).await)
             });
         }
 
@@ -88,6 +88,7 @@ impl DetectorPipeline {
                     DetectionOutcome {
                         detector_name: name,
                         matched: false,
+                        polarity: DetectorPolarity::Vulnerable,
                         confidence: 0.0,
                         rationale: Some(format!("detector error: {err}")),
                     },
@@ -98,6 +99,7 @@ impl DetectorPipeline {
                     DetectionOutcome {
                         detector_name: "<unknown>".into(),
                         matched: false,
+                        polarity: DetectorPolarity::Vulnerable,
                         confidence: 0.0,
                         rationale: Some(format!("task failure: {join_err}")),
                     },
@@ -109,3 +111,4 @@ impl DetectorPipeline {
         Ok(indexed.into_iter().map(|(_, outcome)| outcome).collect())
     }
 }
+

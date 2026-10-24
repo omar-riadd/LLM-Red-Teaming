@@ -1,8 +1,8 @@
 // crates/redteamer-reporters/src/markdown.rs
 
 use redteamer_core::error::Result;
-use redteamer_core::traits::reporter::{ReportExporter, ReportFormat};
-use redteamer_core::types::{Finding, Verdict};
+use redteamer_core::traits::reporter::{ReportContext, ReportExporter, ReportFormat};
+use redteamer_core::types::Verdict;
 
 /// Renders a compact, CLI-friendly Markdown summary.
 #[derive(Debug, Clone)]
@@ -27,39 +27,82 @@ impl MarkdownExporter {
         self
     }
 
-    fn render(&self, findings: &[Finding]) -> String {
-        let vulnerable = findings.iter().filter(|f| f.verdict.is_vulnerable()).count();
+    #[must_use]
+    pub fn render(&self, ctx: &ReportContext) -> String {
+        let vulnerable = ctx.findings.iter().filter(|f| f.verdict.is_vulnerable()).count();
+        let bd = &ctx.severity_breakdown;
+        let highest = bd
+            .highest_score
+            .map_or_else(|| "0.0 (None)".to_owned(), |s| format!("{s:.1}"));
 
-        let mut out = String::with_capacity(1024 + findings.len() * 128);
+        let mut out = String::with_capacity(1024 + ctx.findings.len() * 160);
         out.push_str("# LLM Red-Teaming Report\n\n");
         out.push_str(&format!(
-            "- **Findings:** {}\n- **Vulnerable:** {vulnerable}\n- **Generated:** {}\n\n",
-            findings.len(),
+            "- **Session:** `{}`\n- **Target:** `{}` (model: `{}`)\n- **Records Evaluated:** {}\n- **Vulnerable Findings:** {vulnerable}\n- **CVSS v4.0 Highest:** {highest} (Critical: {}, High: {}, Medium: {}, Low: {})\n- **Generated:** {}\n\n",
+            ctx.session_id,
+            ctx.target_name,
+            ctx.target_model.as_deref().unwrap_or("default"),
+            ctx.records.len(),
+            bd.critical,
+            bd.high,
+            bd.medium,
+            bd.low,
             chrono::Utc::now().to_rfc3339(),
         ));
 
-        if findings.is_empty() {
+        if !ctx.probe_summaries.is_empty() {
+            out.push_str("## Per-Probe Attack Success Rate (ASR)\n\n");
+            out.push_str("| Probe | OWASP | Total | Vulnerable | Partial | Resistant | Errors | ASR |\n");
+            out.push_str("|---|---|---:|---:|---:|---:|---:|---:|\n");
+            for s in &ctx.probe_summaries {
+                out.push_str(&format!(
+                    "| `{}` | {} | {} | {} | {} | {} | {} | **{:.1}%** |\n",
+                    s.probe_name,
+                    s.category.id(),
+                    s.total,
+                    s.vulnerable,
+                    s.partial,
+                    s.resistant,
+                    s.errors,
+                    s.asr_percent
+                ));
+            }
+            out.push('\n');
+        }
+
+        out.push_str("## Findings\n\n");
+        if ctx.findings.is_empty() {
             out.push_str("_No findings recorded._\n");
             return out;
         }
 
-        out.push_str("| Title | Verdict | Probe | Detector | OWASP |\n");
-        out.push_str("|---|---|---|---|---|\n");
-        for finding in findings {
+        out.push_str("| Title | Verdict | CVSS v4.0 | Mutation | Probe | Detector | OWASP |\n");
+        out.push_str("|---|---|---|---|---|---|---|\n");
+        for finding in &ctx.findings {
             let owasp = finding
                 .owasp_mappings
                 .iter()
                 .map(|m| m.category.id())
                 .collect::<Vec<_>>()
                 .join(", ");
+            let cvss_cell = finding.cvss.as_ref().map_or_else(
+                || "0.0 (None)".to_owned(),
+                |c| {
+                    let sev = c
+                        .severity()
+                        .map_or_else(|| "None".to_owned(), |s| s.to_string());
+                    format!("{:.1} ({sev})", c.score())
+                },
+            );
             let description = truncate(&finding.description, self.max_description_len);
-            // Escape pipes so the table stays intact.
             let title = finding.title.replace('|', "\\|");
             out.push_str(&format!(
-                "| **{}**<br/>{} | {} | {} | {} | {} |\n",
+                "| **{}**<br/>{} | {} | {} | `{}` | `{}` | `{}` | {} |\n",
                 title,
-                description.replace('|', "\\|"),
+                description.replace('|', "\\|").replace('\n', " "),
                 badge(finding.verdict),
+                cvss_cell,
+                finding.mutation_type,
                 finding.probe_name,
                 finding.detector_name,
                 owasp,
@@ -92,8 +135,9 @@ impl ReportExporter for MarkdownExporter {
         ReportFormat::Markdown
     }
 
-    async fn export(&self, findings: &[Finding]) -> Result<usize> {
-        self.sink.write(&self.render(findings))?;
-        Ok(findings.len())
+    async fn export(&self, ctx: &ReportContext) -> Result<usize> {
+        self.sink.write(&self.render(ctx))?;
+        Ok(ctx.findings.len())
     }
 }
+

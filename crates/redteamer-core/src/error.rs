@@ -47,5 +47,72 @@ pub enum RedTeamerError {
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl RedTeamerError {
+    /// Returns `true` if this error represents a transient transport or HTTP failure
+    /// (HTTP 408, 429, 500, 502, 503, 504, timeout, or connection reset) that should
+    /// be retried with backoff.
+    #[must_use]
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Adapter { message, .. } => {
+                let msg = message.to_lowercase();
+                msg.contains("http 408")
+                    || msg.contains("http 429")
+                    || msg.contains("http 500")
+                    || msg.contains("http 502")
+                    || msg.contains("http 503")
+                    || msg.contains("http 504")
+                    || msg.contains("timed out")
+                    || msg.contains("timeout")
+                    || msg.contains("connection reset")
+                    || msg.contains("connection refused")
+                    || msg.contains("temporarily unavailable")
+                    || msg.contains("rate limit")
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Convenience alias used throughout the framework.
 pub type Result<T, E = RedTeamerError> = std::result::Result<T, E>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retryable_identifies_transient_http_and_timeout_errors() {
+        let rate_limited = RedTeamerError::Adapter {
+            adapter: "openai-chat",
+            message: "HTTP 429 Too Many Requests: rate limit exceeded".into(),
+            source: None,
+        };
+        assert!(rate_limited.is_retryable());
+
+        let gateway_err = RedTeamerError::Adapter {
+            adapter: "anthropic-messages",
+            message: "HTTP 503 Service Unavailable".into(),
+            source: None,
+        };
+        assert!(gateway_err.is_retryable());
+
+        let timeout_err = RedTeamerError::Adapter {
+            adapter: "ollama-chat",
+            message: "request timed out".into(),
+            source: None,
+        };
+        assert!(timeout_err.is_retryable());
+
+        let auth_err = RedTeamerError::Adapter {
+            adapter: "openai-chat",
+            message: "HTTP 401 Unauthorized".into(),
+            source: None,
+        };
+        assert!(!auth_err.is_retryable());
+
+        let config_err = RedTeamerError::InvalidConfig("bad config".into());
+        assert!(!config_err.is_retryable());
+    }
+}
+

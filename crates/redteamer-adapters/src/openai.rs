@@ -2,7 +2,9 @@
 
 use async_trait::async_trait;
 use redteamer_core::error::{RedTeamerError, Result};
-use redteamer_core::traits::adapter::{AdapterInfo, AdapterResponse, TargetAdapter};
+use redteamer_core::traits::adapter::{
+    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, Role, TargetAdapter,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -17,6 +19,7 @@ pub struct OpenAiAdapter {
     info: AdapterInfo,
     base_url: String,
     api_key: String,
+    default_options: GenerationOptions,
     /// Shared limiter; the adapter is `Send + Sync` and may be fanned out
     /// across probes, so mutation goes through an async `Mutex`.
     limiter: Mutex<RateLimiter>,
@@ -57,12 +60,31 @@ impl OpenAiAdapter {
             info: AdapterInfo {
                 name: "openai-chat",
                 version: env!("CARGO_PKG_VERSION"),
-                model: Some(model.clone()),
+                model: Some(model),
             },
             base_url: base_url.into(),
             api_key: api_key.into(),
+            default_options: GenerationOptions::default(),
             limiter: Mutex::new(RateLimiter::default()),
         })
+    }
+
+    /// Configures a custom sustained requests-per-second rate limit.
+    #[must_use]
+    pub fn with_rate_limit(self, rps: f64) -> Self {
+        let rps = rps.max(0.1);
+        Self {
+            limiter: Mutex::new(RateLimiter::new((rps * 2.0).max(5.0), rps)),
+            ..self
+        }
+    }
+
+    /// Sets default generation options (system prompt, temperature, max_tokens, seed)
+    /// used when per-call options do not override them.
+    #[must_use]
+    pub fn with_default_options(mut self, opts: GenerationOptions) -> Self {
+        self.default_options = opts;
+        self
     }
 
     async fn complete(&self, body: &ChatRequest) -> Result<AdapterResponse> {
@@ -105,12 +127,17 @@ impl OpenAiAdapter {
             })?;
 
         let choice = parsed.choices.first();
-        let text = choice.and_then(|c| c.message.content.clone()).unwrap_or_default();
+        let text = choice
+            .and_then(|c| c.message.content.clone())
+            .unwrap_or_default();
 
         Ok(AdapterResponse {
             text,
             completed: choice.is_some_and(|c| c.finish_reason.as_deref() == Some("stop")),
-            metadata: parsed.usage.map(|u| serde_json::to_value(u).unwrap_or_default()).unwrap_or_default(),
+            metadata: parsed
+                .usage
+                .map(|u| serde_json::to_value(u).unwrap_or_default())
+                .unwrap_or_default(),
         })
     }
 }
@@ -121,9 +148,31 @@ impl TargetAdapter for OpenAiAdapter {
         &self.info
     }
 
-    async fn send(&self, prompt: &str) -> Result<AdapterResponse> {
-        self.complete(&ChatRequest::single_prompt(self.info.model.as_deref().unwrap_or_default(), prompt))
-            .await
+    async fn send_chat(
+        &self,
+        messages: &[ChatMessage],
+        opts: &GenerationOptions,
+    ) -> Result<AdapterResponse> {
+        let mut wire_messages = Vec::with_capacity(messages.len() + 1);
+        let sys_prompt = opts
+            .system_prompt
+            .as_deref()
+            .or(self.default_options.system_prompt.as_deref());
+        if let Some(sp) = sys_prompt {
+            if !messages.first().is_some_and(|m| m.role == Role::System) {
+                wire_messages.push(ChatMessage::system(sp));
+            }
+        }
+        wire_messages.extend_from_slice(messages);
+
+        let req = ChatRequest {
+            model: self.info.model.clone().unwrap_or_default(),
+            messages: wire_messages,
+            temperature: opts.temperature.or(self.default_options.temperature),
+            max_tokens: opts.max_tokens.or(self.default_options.max_tokens),
+            seed: opts.seed.or(self.default_options.seed),
+        };
+        self.complete(&req).await
     }
 }
 
@@ -135,24 +184,12 @@ impl TargetAdapter for OpenAiAdapter {
 struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
-}
-
-impl ChatRequest {
-    fn single_prompt(model: &str, prompt: &str) -> Self {
-        Self {
-            model: model.to_owned(),
-            messages: vec![ChatMessage {
-                role: "user".into(),
-                content: prompt.into(),
-            }],
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ChatMessage {
-    role: String,
-    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,3 +226,4 @@ fn truncate(s: &str, max: usize) -> &str {
         None => s,
     }
 }
+

@@ -1,4 +1,6 @@
-use redteamer_core::traits::adapter::{TargetAdapter, AdapterInfo, AdapterResponse};
+use redteamer_core::traits::adapter::{
+    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, TargetAdapter,
+};
 use redteamer_core::error::RedTeamerError;
 use redteamer_core::types::OwaspCategory;
 use std::sync::Arc;
@@ -10,7 +12,11 @@ impl TargetAdapter for MockAdapter {
     fn info(&self) -> &AdapterInfo {
         todo!()
     }
-    async fn send(&self, _prompt: &str) -> Result<AdapterResponse, RedTeamerError> {
+    async fn send_chat(
+        &self,
+        _messages: &[ChatMessage],
+        _opts: &GenerationOptions,
+    ) -> Result<AdapterResponse, RedTeamerError> {
         todo!()
     }
 }

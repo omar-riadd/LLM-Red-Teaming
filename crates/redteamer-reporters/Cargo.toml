@@ -20,3 +20,4 @@ async-trait.workspace = true
 
 [dev-dependencies]
 cvss = { version = "2.2", features = ["v4"] }
+tokio.workspace = true

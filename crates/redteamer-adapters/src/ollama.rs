@@ -2,18 +2,22 @@
 
 use async_trait::async_trait;
 use redteamer_core::error::{RedTeamerError, Result};
-use redteamer_core::traits::adapter::{AdapterInfo, AdapterResponse, TargetAdapter};
+use redteamer_core::traits::adapter::{
+    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, Role, TargetAdapter,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::RateLimiter;
 
-/// Adapter for Ollama's native `/api/generate` endpoint — the standard
-/// local target for integration tests and the docker-compose environment.
+/// Adapter for Ollama's native `/api/chat` endpoint — supports system prompts,
+/// multi-turn conversation history, and generation options (`temperature`,
+/// `num_predict`, `seed`).
 pub struct OllamaAdapter {
     client: reqwest::Client,
     info: AdapterInfo,
     base_url: String,
+    default_options: GenerationOptions,
     limiter: Mutex<RateLimiter>,
 }
 
@@ -27,7 +31,7 @@ impl OllamaAdapter {
             .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| RedTeamerError::Adapter {
-                adapter: "ollama-generate",
+                adapter: "ollama-chat",
                 message: format!("failed to build HTTP client: {e}"),
                 source: Some(Box::new(e)),
             })?;
@@ -36,29 +40,62 @@ impl OllamaAdapter {
         Ok(Self {
             client,
             info: AdapterInfo {
-                name: "ollama-generate",
+                name: "ollama-chat",
                 version: env!("CARGO_PKG_VERSION"),
-                model: Some(model.clone()),
+                model: Some(model),
             },
             base_url: base_url.into(),
+            default_options: GenerationOptions::default(),
             // Local inference is free; only guard against accidental
             // request storms against the dev box.
             limiter: Mutex::new(RateLimiter::new(64.0, 64.0)),
         })
     }
+
+    /// Configures a custom sustained requests-per-second rate limit.
+    #[must_use]
+    pub fn with_rate_limit(self, rps: f64) -> Self {
+        let rps = rps.max(0.1);
+        Self {
+            limiter: Mutex::new(RateLimiter::new(rps.max(1.0), rps)),
+            ..self
+        }
+    }
+
+    /// Sets default generation options (system prompt, temperature, max_tokens, seed)
+    /// used when per-call options do not override them.
+    #[must_use]
+    pub fn with_default_options(mut self, opts: GenerationOptions) -> Self {
+        self.default_options = opts;
+        self
+    }
 }
 
 #[derive(Debug, Serialize)]
-struct GenerateRequest<'a> {
+struct OllamaChatRequest<'a> {
     model: &'a str,
-    prompt: &'a str,
+    messages: Vec<ChatMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaModelOptions>,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaModelOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_predict: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
-struct GenerateResponse {
+struct OllamaChatResponse {
     #[serde(default)]
-    response: String,
+    message: Option<OllamaMessageOut>,
+    #[serde(default)]
+    response: Option<String>,
     #[serde(default)]
     done: bool,
     #[serde(default)]
@@ -67,20 +104,56 @@ struct GenerateResponse {
     prompt_eval_count: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct OllamaMessageOut {
+    #[serde(default)]
+    content: String,
+}
+
 #[async_trait]
 impl TargetAdapter for OllamaAdapter {
     fn info(&self) -> &AdapterInfo {
         &self.info
     }
 
-    async fn send(&self, prompt: &str) -> Result<AdapterResponse> {
+    async fn send_chat(
+        &self,
+        messages: &[ChatMessage],
+        opts: &GenerationOptions,
+    ) -> Result<AdapterResponse> {
         self.limiter.lock().await.acquire().await;
 
-        let url = format!("{}/api/generate", self.base_url.trim_end_matches('/'));
-        let body = GenerateRequest {
+        let mut wire_messages = Vec::with_capacity(messages.len() + 1);
+        let sys_prompt = opts
+            .system_prompt
+            .as_deref()
+            .or(self.default_options.system_prompt.as_deref());
+        if let Some(sp) = sys_prompt {
+            if !messages.first().is_some_and(|m| m.role == Role::System) {
+                wire_messages.push(ChatMessage::system(sp));
+            }
+        }
+        wire_messages.extend_from_slice(messages);
+
+        let temperature = opts.temperature.or(self.default_options.temperature);
+        let num_predict = opts.max_tokens.or(self.default_options.max_tokens);
+        let seed = opts.seed.or(self.default_options.seed);
+        let options = if temperature.is_some() || num_predict.is_some() || seed.is_some() {
+            Some(OllamaModelOptions {
+                temperature,
+                num_predict,
+                seed,
+            })
+        } else {
+            None
+        };
+
+        let url = format!("{}/api/chat", self.base_url.trim_end_matches('/'));
+        let body = OllamaChatRequest {
             model: self.info.model.as_deref().unwrap_or_default(),
-            prompt,
+            messages: wire_messages,
             stream: false,
+            options,
         };
 
         let response = self
@@ -105,21 +178,30 @@ impl TargetAdapter for OllamaAdapter {
         if !status.is_success() {
             return Err(RedTeamerError::Adapter {
                 adapter: self.info.name,
-                message: format!("HTTP {status}: {}", payload.chars().take(512).collect::<String>()),
+                message: format!(
+                    "HTTP {status}: {}",
+                    payload.chars().take(512).collect::<String>()
+                ),
                 source: None,
             });
         }
 
-        let parsed: GenerateResponse =
+        let parsed: OllamaChatResponse =
             serde_json::from_str(&payload).map_err(|e| RedTeamerError::Adapter {
                 adapter: self.info.name,
-                message: format!("malformed generate payload: {e}"),
+                message: format!("malformed chat payload: {e}"),
                 source: Some(Box::new(e)),
             })?;
 
+        let text = parsed
+            .message
+            .map(|m| m.content)
+            .or(parsed.response)
+            .unwrap_or_default();
+
         Ok(AdapterResponse {
             completed: parsed.done,
-            text: parsed.response,
+            text,
             metadata: serde_json::json!({
                 "prompt_eval_count": parsed.prompt_eval_count,
                 "eval_count": parsed.eval_count,
@@ -148,3 +230,4 @@ impl TargetAdapter for OllamaAdapter {
         Ok(())
     }
 }
+

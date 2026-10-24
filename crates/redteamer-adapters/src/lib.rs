@@ -157,3 +157,47 @@ impl Default for RateLimiter {
         Self::new(5.0, 1.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use redteamer_core::traits::adapter::{GenerationOptions, TargetAdapter};
+
+    #[test]
+    fn adapter_builders_and_options_configure_cleanly() {
+        let opts = GenerationOptions {
+            system_prompt: Some("You are a helpful assistant.".into()),
+            temperature: Some(0.2),
+            max_tokens: Some(2048),
+            seed: Some(42),
+        };
+
+        let ollama = OllamaAdapter::new("http://localhost:11434", "llama3.2")
+            .unwrap()
+            .with_rate_limit(10.0)
+            .with_default_options(opts.clone());
+        assert_eq!(ollama.info().name, "ollama-chat");
+        assert_eq!(ollama.info().model.as_deref(), Some("llama3.2"));
+
+        let openai = OpenAiAdapter::new("sk-test", "gpt-4o-mini")
+            .unwrap()
+            .with_rate_limit(5.0)
+            .with_default_options(opts.clone());
+        assert_eq!(openai.info().name, "openai-chat");
+
+        let anthropic = AnthropicAdapter::new("sk-ant-test", "claude-3-5-sonnet-20241022")
+            .unwrap()
+            .with_rate_limit(5.0)
+            .with_default_options(opts);
+        assert_eq!(anthropic.info().name, "anthropic-messages");
+    }
+
+    #[test]
+    fn adapter_config_parses_json_and_builds_adapter() {
+        let raw = r#"{"provider":"ollama","base_url":"http://localhost:11434","model":"qwen2:0.5b"}"#;
+        let cfg = AdapterConfig::from_str_any_format(raw).unwrap();
+        let adapter = create_adapter(&cfg).unwrap();
+        assert_eq!(adapter.info().model.as_deref(), Some("qwen2:0.5b"));
+    }
+}
+

@@ -6,6 +6,7 @@
 //! writes to a configurable [`OutputSink`]. The [`exporter_factory`] builds
 //! the right exporter from CLI-level configuration.
 
+pub mod csv;
 pub mod html;
 pub mod markdown;
 pub mod owasp_mapper;
@@ -13,9 +14,10 @@ pub mod sarif;
 
 use redteamer_core::error::RedTeamerError;
 use redteamer_core::error::Result;
-use redteamer_core::traits::reporter::{ReportExporter, ReportFormat};
+use redteamer_core::traits::reporter::{ReportContext, ReportExporter, ReportFormat};
 use std::path::PathBuf;
 
+pub use csv::CsvExporter;
 pub use html::HtmlExporter;
 pub use markdown::MarkdownExporter;
 pub use owasp_mapper::CvssLlmComputer;
@@ -44,8 +46,9 @@ impl OutputSink {
                     .and_then(|()| out.write_all(b"\n"))
                     .map_err(|e| RedTeamerError::Report(format!("stdout write failed: {e}")))
             }
-            Self::File(path) => std::fs::write(path, contents)
-                .map_err(|e| RedTeamerError::Report(format!("write to {} failed: {e}", path.display()))),
+            Self::File(path) => std::fs::write(path, contents).map_err(|e| {
+                RedTeamerError::Report(format!("write to {} failed: {e}", path.display()))
+            }),
         }
     }
 }
@@ -53,22 +56,25 @@ impl OutputSink {
 /// Builds the exporter matching `format`.
 ///
 /// # Errors
-/// Returns [`RedTeamerError::Unsupported`] for formats that have no
-/// exporter yet (currently `Csv`).
-pub fn exporter_factory(format: ReportFormat, sink: OutputSink) -> Result<Box<dyn ReportExporter>> {
+/// Returns [`RedTeamerError::Report`] if the HTML template fails to compile.
+pub fn exporter_factory(
+    format: ReportFormat,
+    sink: OutputSink,
+) -> Result<Box<dyn ReportExporter>> {
     match format {
         ReportFormat::Json => Ok(Box::new(JsonExporter { sink })),
+        ReportFormat::Jsonl => Ok(Box::new(JsonlExporter { sink })),
         ReportFormat::Markdown => Ok(Box::new(MarkdownExporter::new(sink))),
-        ReportFormat::Html => HtmlExporter::new(sink).map(|e| Box::new(e) as Box<dyn ReportExporter>),
+        ReportFormat::Html => {
+            HtmlExporter::new(sink).map(|e| Box::new(e) as Box<dyn ReportExporter>)
+        }
         ReportFormat::Sarif => Ok(Box::new(SarifExporter::new(sink))),
-        ReportFormat::Csv => Err(RedTeamerError::Unsupported(
-            "CSV export is planned for a later phase".into(),
-        )),
+        ReportFormat::Csv => Ok(Box::new(CsvExporter::new(sink))),
     }
 }
 
 // ---------------------------------------------------------------------------
-// JSON exporter (trivial serde round-trip; kept here so every format has one home)
+// JSON & JSONL exporters
 // ---------------------------------------------------------------------------
 
 struct JsonExporter {
@@ -81,8 +87,83 @@ impl ReportExporter for JsonExporter {
         ReportFormat::Json
     }
 
-    async fn export(&self, findings: &[redteamer_core::types::Finding]) -> Result<usize> {
-        self.sink.write(&serde_json::to_string_pretty(findings)?)?;
-        Ok(findings.len())
+    async fn export(&self, ctx: &ReportContext) -> Result<usize> {
+        self.sink.write(&serde_json::to_string_pretty(ctx)?)?;
+        Ok(ctx.findings.len())
     }
 }
+
+struct JsonlExporter {
+    sink: OutputSink,
+}
+
+#[async_trait::async_trait]
+impl ReportExporter for JsonlExporter {
+    fn format(&self) -> ReportFormat {
+        ReportFormat::Jsonl
+    }
+
+    async fn export(&self, ctx: &ReportContext) -> Result<usize> {
+        let mut lines = String::new();
+        for rec in &ctx.records {
+            lines.push_str(&serde_json::to_string(rec)?);
+            lines.push('\n');
+        }
+        self.sink.write(lines.trim_end_matches('\n'))?;
+        Ok(ctx.records.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::owasp_mapper::build_report_context;
+    use redteamer_core::types::{AttackRecord, OwaspCategory, Verdict};
+    use std::collections::HashMap;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn all_six_exporters_render_valid_artifacts() {
+        let session_id = Uuid::new_v4();
+        let mut rec = AttackRecord::new(session_id, "llm01_prompt_injection", "Ignore instructions");
+        rec.response = Some("I am DAN".into());
+        rec.verdict = Verdict::Vulnerable;
+        let map = HashMap::from([(
+            "llm01_prompt_injection".to_owned(),
+            OwaspCategory::PromptInjection,
+        )]);
+        let ctx = build_report_context(
+            session_id,
+            "mock",
+            Some("mock-v2".into()),
+            vec![rec],
+            &map,
+        );
+
+        let tmp_dir = std::env::temp_dir().join(format!("redteamer_test_{session_id}"));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+
+        for (fmt, ext, expected_substr) in [
+            (ReportFormat::Json, "json", "\"probe_summaries\""),
+            (ReportFormat::Jsonl, "jsonl", "\"llm01_prompt_injection\""),
+            (ReportFormat::Markdown, "md", "## Per-Probe Attack Success Rate (ASR)"),
+            (ReportFormat::Html, "html", "Per-Probe Attack Success Rate (ASR)"),
+            (ReportFormat::Sarif, "sarif", "\"locations\""),
+            (ReportFormat::Csv, "csv", "session_id,record_id,probe_name"),
+        ] {
+            let path = tmp_dir.join(format!("report.{ext}"));
+            let exporter = exporter_factory(fmt, OutputSink::File(path.clone())).unwrap();
+            assert_eq!(exporter.format(), fmt);
+            let count = exporter.export(&ctx).await.unwrap();
+            assert_eq!(count, 1);
+            let content = std::fs::read_to_string(&path).unwrap();
+            assert!(
+                content.contains(expected_substr),
+                "format {fmt:?} missing {expected_substr} in {content}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+}
+

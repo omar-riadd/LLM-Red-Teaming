@@ -3,8 +3,8 @@
 use async_trait::async_trait;
 use memchr::memmem;
 use redteamer_core::error::Result;
-use redteamer_core::traits::detector::Detector;
-use redteamer_core::types::DetectionOutcome;
+use redteamer_core::traits::detector::{DetectContext, Detector};
+use redteamer_core::types::{DetectionOutcome, DetectorPolarity};
 
 /// SIMD-accelerated multi-substring detector built on `memchr`'s
 /// `memmem` backend — the hot path for high-volume scans.
@@ -22,6 +22,7 @@ pub struct StringMatchDetector {
     needles: Vec<String>,
     case_sensitive: bool,
     confidence: f32,
+    polarity: DetectorPolarity,
 }
 
 impl StringMatchDetector {
@@ -69,7 +70,16 @@ impl StringMatchDetector {
             needles,
             case_sensitive,
             confidence,
+            polarity: DetectorPolarity::Vulnerable,
         })
+    }
+
+    /// Configures whether matches represent a vulnerability (`Vulnerable`) or an
+    /// explicit refusal (`Refusal`).
+    #[must_use]
+    pub const fn with_polarity(mut self, polarity: DetectorPolarity) -> Self {
+        self.polarity = polarity;
+        self
     }
 }
 
@@ -83,18 +93,22 @@ impl Detector for StringMatchDetector {
         &self.description
     }
 
-    async fn detect(&self, _prompt: &str, response: Option<&str>) -> Result<DetectionOutcome> {
-        let Some(response) = response else {
+    async fn detect(&self, ctx: &DetectContext) -> Result<DetectionOutcome> {
+        let Some(response) = ctx.response.as_deref() else {
             return Ok(DetectionOutcome {
                 detector_name: self.name.clone(),
                 matched: false,
+                polarity: self.polarity,
                 confidence: 1.0,
                 rationale: Some("empty response".into()),
             });
         };
 
-        let hay = if self
-            .case_sensitive { response.to_owned() } else { response.to_lowercase() };
+        let hay = if self.case_sensitive {
+            response.to_owned()
+        } else {
+            response.to_lowercase()
+        };
 
         let hits: Vec<&str> = self
             .finders
@@ -107,8 +121,10 @@ impl Detector for StringMatchDetector {
         Ok(DetectionOutcome {
             detector_name: self.name.clone(),
             matched: !hits.is_empty(),
+            polarity: self.polarity,
             confidence: if hits.is_empty() { 1.0 } else { self.confidence },
             rationale: (!hits.is_empty()).then(|| format!("matched: {}", hits.join(", "))),
         })
     }
 }
+

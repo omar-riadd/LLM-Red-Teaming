@@ -248,6 +248,19 @@ impl Severity {
     }
 }
 
+impl fmt::Display for Severity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::None => "None",
+            Self::Low => "Low",
+            Self::Medium => "Medium",
+            Self::High => "High",
+            Self::Critical => "Critical",
+        };
+        f.write_str(s)
+    }
+}
+
 /// A single, reportable security observation about a target.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Finding {
@@ -268,6 +281,15 @@ pub struct Finding {
     pub detector_name: String,
     /// Name of the probe that triggered the behavior.
     pub probe_name: String,
+    /// The attack prompt that triggered this finding.
+    #[serde(default)]
+    pub prompt: String,
+    /// The target response that triggered this finding, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<String>,
+    /// The payload mutation applied to the attack prompt.
+    #[serde(default)]
+    pub mutation_type: MutationType,
     /// When the finding was recorded.
     pub recorded_at: DateTime<Utc>,
     /// Identifiers of the [`AttackRecord`]s backing this finding.
@@ -292,6 +314,9 @@ impl Finding {
             cvss: None,
             detector_name: detector_name.into(),
             probe_name: probe_name.into(),
+            prompt: String::new(),
+            response: None,
+            mutation_type: MutationType::None,
             recorded_at: Utc::now(),
             evidence_ids: Vec::new(),
         }
@@ -307,15 +332,59 @@ impl Finding {
     }
 }
 
+/// Breakdown of vulnerable records by CVSS severity band.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SeverityBreakdown {
+    /// CVSS 9.0-10.0
+    pub critical: usize,
+    /// CVSS 7.0-8.9
+    pub high: usize,
+    /// CVSS 4.0-6.9
+    pub medium: usize,
+    /// CVSS 0.1-3.9
+    pub low: usize,
+    /// Highest CVSS score among vulnerable records, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highest_score: Option<f32>,
+}
+
+impl SeverityBreakdown {
+    /// Total vulnerable records counted across all bands.
+    #[must_use]
+    pub const fn total(&self) -> usize {
+        self.critical + self.high + self.medium + self.low
+    }
+
+    /// Whether no vulnerable records were present.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.total() == 0
+    }
+}
+
+/// Aggregated execution statistics and Attack Success Rate (ASR) for a single probe.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProbeSummary {
+    pub probe_name: String,
+    pub category: OwaspCategory,
+    pub total: usize,
+    pub vulnerable: usize,
+    pub partial: usize,
+    pub resistant: usize,
+    pub errors: usize,
+    pub asr_percent: f32,
+}
+
 // ---------------------------------------------------------------------------
 // Attacks
 // ---------------------------------------------------------------------------
 
 /// Transformations a probe can apply to a seed attack payload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MutationType {
     /// Seed payload used verbatim.
+    #[default]
     None,
     /// Unicode homoglyph / lookalike character substitution.
     CharacterSubstitution,
@@ -421,13 +490,27 @@ impl AttackRecord {
     }
 }
 
+/// Whether a detector match indicates vulnerability compliance or explicit refusal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetectorPolarity {
+    /// Match indicates vulnerable/unsafe compliance.
+    #[default]
+    Vulnerable,
+    /// Match indicates explicit safety refusal by the target.
+    Refusal,
+}
+
 /// Outcome of one detector run over a single response.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DetectionOutcome {
     /// Name of the detector that ran.
     pub detector_name: String,
-    /// Whether the detector matched malicious/vulnerable behavior.
+    /// Whether the detector matched its target pattern/condition.
     pub matched: bool,
+    /// Polarity of the detector (`Vulnerable` vs `Refusal`).
+    #[serde(default)]
+    pub polarity: DetectorPolarity,
     /// Confidence of the decision, in `[0.0, 1.0]`.
     pub confidence: f32,
     /// Short explanation, e.g. the matched rule or pattern.

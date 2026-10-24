@@ -2,6 +2,78 @@
 
 use crate::error::Result;
 use crate::types::AttackRecord;
+use serde::{Deserialize, Serialize};
+
+/// Role of a participant in a multi-turn chat exchange.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    System,
+    User,
+    Assistant,
+}
+
+impl Role {
+    /// Wire string representation (`"system"`, `"user"`, `"assistant"`).
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::User => "user",
+            Self::Assistant => "assistant",
+        }
+    }
+}
+
+/// A single turn in a chat conversation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: Role,
+    pub content: String,
+}
+
+impl ChatMessage {
+    #[must_use]
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: Role::System,
+            content: content.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: Role::User,
+            content: content.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: Role::Assistant,
+            content: content.into(),
+        }
+    }
+}
+
+/// Per-request generation parameters passed to a [`TargetAdapter`].
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GenerationOptions {
+    /// Optional system prompt to prepend or configure for this request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    /// Sampling temperature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    /// Maximum tokens to generate in the response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    /// Deterministic sampling seed, if supported by the backend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+}
 
 /// Metadata describing a target adapter.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,27 +108,36 @@ pub trait TargetAdapter: Send + Sync {
     /// Static metadata about this adapter.
     fn info(&self) -> &AdapterInfo;
 
-    /// Sends a single prompt to the target and awaits its completion.
+    /// Sends a structured chat message history with generation options.
     ///
     /// Implementations should be idempotent with respect to retries at
-    /// the transport layer but MUST NOT silently retry on their own —
-    /// the orchestrator owns retry policy.
+    /// the transport layer.
     ///
     /// # Errors
     /// Returns [`crate::error::RedTeamerError::Adapter`] for transport,
     /// authentication, or rate-limit failures.
-    async fn send(&self, prompt: &str) -> Result<AdapterResponse>;
+    async fn send_chat(
+        &self,
+        messages: &[ChatMessage],
+        opts: &GenerationOptions,
+    ) -> Result<AdapterResponse>;
+
+    /// Sends a single user prompt to the target with default options.
+    ///
+    /// Default implementation delegates to [`TargetAdapter::send_chat`].
+    async fn send(&self, prompt: &str) -> Result<AdapterResponse> {
+        self.send_chat(&[ChatMessage::user(prompt)], &GenerationOptions::default())
+            .await
+    }
 
     /// Sends a multi-turn conversation (used by escalation probes).
     ///
-    /// The default implementation is unavailable; adapters that support
-    /// conversations should override this. The default returns
-    /// [`crate::error::RedTeamerError::Unsupported`].
+    /// Default implementation converts `turns` into user messages and delegates
+    /// to [`TargetAdapter::send_chat`].
     async fn send_conversation(&self, turns: &[String]) -> Result<AdapterResponse> {
-        let _ = turns;
-        Err(crate::error::RedTeamerError::Unsupported(
-            "adapter does not support multi-turn conversations".into(),
-        ))
+        let messages: Vec<ChatMessage> = turns.iter().map(ChatMessage::user).collect();
+        self.send_chat(&messages, &GenerationOptions::default())
+            .await
     }
 
     /// Health-check hook invoked before a campaign starts.
@@ -80,3 +161,4 @@ pub trait TargetAdapter: Send + Sync {
         let _ = record;
     }
 }
+

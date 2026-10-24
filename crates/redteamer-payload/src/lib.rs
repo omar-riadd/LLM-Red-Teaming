@@ -6,5 +6,6 @@
 pub mod mutation;
 pub mod template;
 
-pub use mutation::{Mutation, MutationPipeline};
-pub use template::ProbeTemplate;
+pub use mutation::{GeneratedPayload, Mutation, MutationPipeline};
+pub use template::{InlineDetectorRule, ProbeScope, ProbeTemplate};
+

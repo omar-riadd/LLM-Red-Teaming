@@ -22,4 +22,6 @@ redteamer-orchestrator.workspace = true
 redteamer-reporters.workspace = true
 clap.workspace = true
 tokio.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
 indicatif = "0.17.11"

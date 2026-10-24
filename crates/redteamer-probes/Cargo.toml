@@ -15,7 +15,6 @@ redteamer-payload.workspace = true
 redteamer-detectors.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
-inventory.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 

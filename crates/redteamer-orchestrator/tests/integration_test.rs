@@ -6,7 +6,9 @@
 //! Run with: `cargo test -p redteamer-orchestrator --test integration_test`
 
 use redteamer_core::error::Result;
-use redteamer_core::traits::adapter::{AdapterInfo, AdapterResponse, TargetAdapter};
+use redteamer_core::traits::adapter::{
+    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, TargetAdapter,
+};
 use redteamer_core::traits::detector::Detector;
 use redteamer_core::traits::probe::Probe;
 use redteamer_core::types::{AttackRecord, OwaspCategory, Verdict};
@@ -32,7 +34,12 @@ impl TargetAdapter for MockAdapter {
         })
     }
 
-    async fn send(&self, prompt: &str) -> Result<AdapterResponse> {
+    async fn send_chat(
+        &self,
+        messages: &[ChatMessage],
+        _opts: &GenerationOptions,
+    ) -> Result<AdapterResponse> {
+        let prompt = messages.last().map(|m| m.content.as_str()).unwrap_or("");
         let text = if prompt.contains(TRIGGER) {
             CANNED_VULNERABLE_REPLY.to_owned()
         } else {

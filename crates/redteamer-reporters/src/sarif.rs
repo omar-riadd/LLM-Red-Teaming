@@ -59,6 +59,13 @@ impl SarifExporter {
                 message: Message {
                     text: format!("{} — {}", finding.title, finding.description),
                 },
+                locations: vec![Location {
+                    physical_location: PhysicalLocation {
+                        artifact_location: ArtifactLocation {
+                            uri: format!("templates/{}.yaml", finding.probe_name),
+                        },
+                    },
+                }],
             });
         }
 
@@ -70,7 +77,7 @@ impl SarifExporter {
                     driver: Driver {
                         name: self.tool_name.into(),
                         version: self.tool_version.into(),
-                        information_uri: "https://github.com/your-org/llm-redteamer".into(),
+                        information_uri: "https://github.com/omar-riadd/LLM-Red-Teaming".into(),
                         rules,
                     },
                 },
@@ -83,7 +90,6 @@ impl SarifExporter {
 fn sarif_level(verdict: Verdict) -> &'static str {
     match verdict {
         Verdict::Vulnerable => "error",
-        // `Severity` is re-used for partials once CvssVector::score is real.
         Verdict::Partial => "warning",
         Verdict::Resistant => "none",
         Verdict::Error => "note",
@@ -123,10 +129,11 @@ struct Driver {
 }
 
 #[derive(Debug, Serialize)]
-#[allow(dead_code)] // severity overrides land with CVSS 4.0 scoring
 struct Rule {
     id: String,
+    #[serde(rename = "shortDescription")]
     short_description: Message,
+    #[serde(rename = "defaultConfiguration")]
     default_configuration: Level,
 }
 
@@ -144,6 +151,24 @@ struct SarifResult {
     kind: String,
     level: String,
     message: Message,
+    locations: Vec<Location>,
+}
+
+#[derive(Debug, Serialize)]
+struct Location {
+    #[serde(rename = "physicalLocation")]
+    physical_location: PhysicalLocation,
+}
+
+#[derive(Debug, Serialize)]
+struct PhysicalLocation {
+    #[serde(rename = "artifactLocation")]
+    artifact_location: ArtifactLocation,
+}
+
+#[derive(Debug, Serialize)]
+struct ArtifactLocation {
+    uri: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,9 +182,10 @@ impl ReportExporter for SarifExporter {
         ReportFormat::Sarif
     }
 
-    async fn export(&self, findings: &[Finding]) -> Result<usize> {
-        let log = self.to_sarif(findings);
+    async fn export(&self, ctx: &redteamer_core::traits::reporter::ReportContext) -> Result<usize> {
+        let log = self.to_sarif(&ctx.findings);
         self.sink.write(&serde_json::to_string_pretty(&log)?)?;
-        Ok(findings.len())
+        Ok(ctx.findings.len())
     }
 }
+

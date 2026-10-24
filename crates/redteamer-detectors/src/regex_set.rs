@@ -2,8 +2,8 @@
 
 use async_trait::async_trait;
 use redteamer_core::error::{RedTeamerError, Result};
-use redteamer_core::traits::detector::Detector;
-use redteamer_core::types::DetectionOutcome;
+use redteamer_core::traits::detector::{DetectContext, Detector};
+use redteamer_core::types::{DetectionOutcome, DetectorPolarity};
 use regex::RegexSet;
 
 /// Multi-pattern detector backed by the `regex` crate's [`RegexSet`],
@@ -15,6 +15,7 @@ pub struct RegexSetDetector {
     set: RegexSet,
     patterns: Vec<String>,
     confidence: f32,
+    polarity: DetectorPolarity,
 }
 
 impl RegexSetDetector {
@@ -58,7 +59,16 @@ impl RegexSetDetector {
             set,
             patterns,
             confidence,
+            polarity: DetectorPolarity::Vulnerable,
         })
+    }
+
+    /// Configures whether matches represent a vulnerability (`Vulnerable`) or an
+    /// explicit refusal (`Refusal`).
+    #[must_use]
+    pub const fn with_polarity(mut self, polarity: DetectorPolarity) -> Self {
+        self.polarity = polarity;
+        self
     }
 }
 
@@ -72,11 +82,12 @@ impl Detector for RegexSetDetector {
         &self.description
     }
 
-    async fn detect(&self, _prompt: &str, response: Option<&str>) -> Result<DetectionOutcome> {
-        let Some(response) = response else {
+    async fn detect(&self, ctx: &DetectContext) -> Result<DetectionOutcome> {
+        let Some(response) = ctx.response.as_deref() else {
             return Ok(DetectionOutcome {
                 detector_name: self.name.clone(),
                 matched: false,
+                polarity: self.polarity,
                 confidence: 1.0,
                 rationale: Some("empty response".into()),
             });
@@ -91,6 +102,7 @@ impl Detector for RegexSetDetector {
         Ok(DetectionOutcome {
             detector_name: self.name.clone(),
             matched: matches.matched_any(),
+            polarity: self.polarity,
             confidence: if matches.matched_any() {
                 self.confidence
             } else {
@@ -101,3 +113,4 @@ impl Detector for RegexSetDetector {
         })
     }
 }
+
