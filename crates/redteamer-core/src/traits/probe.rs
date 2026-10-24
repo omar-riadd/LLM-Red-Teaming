@@ -1,6 +1,7 @@
 // crates/redteamer-core/src/traits/probe.rs
 
 use crate::error::Result;
+use crate::traits::detector::Detector;
 use crate::types::{AttackRecord, OwaspCategory};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -42,5 +43,6 @@ pub trait Probe: Send + Sync {
         session_id: Uuid,
         target: Arc<dyn crate::traits::adapter::TargetAdapter>,
         concurrency: usize,
+        detectors: Arc<[Arc<dyn Detector>]>,
     ) -> Result<Vec<AttackRecord>>;
 }

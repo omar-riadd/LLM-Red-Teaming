@@ -22,6 +22,7 @@ pub struct ScanConfig {
     pub probes: Vec<Arc<dyn Probe>>,
     pub detectors: Vec<Arc<dyn Detector>>,
     pub concurrency: usize,
+    pub(crate) progress_callback: Option<Arc<dyn Fn(usize) + Send + Sync>>,
 }
 
 impl std::fmt::Debug for ScanConfig {
@@ -44,14 +45,16 @@ impl ScanConfig {
     /// reported via [`ScanReport::failed_probes`] while successful records
     /// are aggregated into [`ScanReport::records`].
     pub async fn execute(self) -> ScanReport {
+        let detectors: Arc<[Arc<dyn Detector>]> = Arc::from(self.detectors.clone());
         let mut tasks = JoinSet::new();
 
         for probe in self.probes {
             let session_id = self.session_id;
             let target = Arc::clone(&self.target);
             let concurrency = self.concurrency;
+            let detectors = Arc::clone(&detectors);
 
-            tasks.spawn(async move { probe.run(session_id, target, concurrency).await });
+            tasks.spawn(async move { probe.run(session_id, target, concurrency, detectors).await });
         }
 
         let mut report =
@@ -59,7 +62,12 @@ impl ScanConfig {
 
         while let Some(joined) = tasks.join_next().await {
             match joined {
-                Ok(Ok(records)) => report.records.extend(records),
+                Ok(Ok(records)) => {
+                    report.records.extend(records);
+                    if let Some(cb) = &self.progress_callback {
+                        cb(report.records.len());
+                    }
+                }
                 Ok(Err(err)) => report.failed_probes.push(err.to_string()),
                 // Probe task panicked or was cancelled.
                 Err(join_err) => report.failed_probes.push(format!("task failure: {join_err}")),
@@ -131,6 +139,7 @@ pub struct ScanBuilder {
     detectors: Vec<Arc<dyn Detector>>,
     concurrency: Option<usize>,
     session_id: Option<Uuid>,
+    progress_callback: Option<Arc<dyn Fn(usize) + Send + Sync>>,
 }
 
 impl ScanBuilder {
@@ -142,6 +151,7 @@ impl ScanBuilder {
             detectors: Vec::new(),
             concurrency: None,
             session_id: None,
+            progress_callback: None,
         }
     }
 
@@ -187,6 +197,13 @@ impl ScanBuilder {
         self
     }
 
+    /// Registers a callback fired after each probe completes, with the running total record count.
+    #[must_use]
+    pub fn on_record_progress(mut self, callback: impl Fn(usize) + Send + Sync + 'static) -> Self {
+        self.progress_callback = Some(Arc::new(callback));
+        self
+    }
+
     /// Validates and freezes the configuration.
     ///
     /// # Errors
@@ -203,6 +220,7 @@ impl ScanBuilder {
                 .concurrency
                 .filter(|c| *c > 0)
                 .unwrap_or(DEFAULT_CONCURRENCY),
+            progress_callback: self.progress_callback,
         })
     }
 }

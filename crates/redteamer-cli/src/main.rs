@@ -3,10 +3,13 @@
 //! `llm-redteamer` CLI entry point.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use indicatif::{ProgressBar, ProgressStyle};
 use redteamer_core::error::Result;
 use redteamer_adapters::{OpenAiAdapter, OllamaAdapter, AnthropicAdapter};
 use redteamer_probes as probes;
+use std::collections::HashMap;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Command-line interface for the llm-redteamer framework.
@@ -36,6 +39,14 @@ enum Command {
         /// Output format for the final report.
         #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
         format: OutputFormat,
+
+        /// Optional output file path; if omitted, prints report to stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+
+        /// Concurrent requests per probe (default 8).
+        #[arg(long, default_value_t = 8)]
+        concurrency: usize,
     },
 
     /// List available probes or detectors.
@@ -80,8 +91,10 @@ async fn main() {
             target,
             probes,
             format,
+            output,
+            concurrency,
         } => {
-            if let Err(err) = run_scan(&target, &probes, format).await {
+            if let Err(err) = run_scan(&target, &probes, format, output, concurrency).await {
                 eprintln!("error: {err}");
                 std::process::exit(1);
             }
@@ -92,7 +105,19 @@ async fn main() {
     }
 }
 
-async fn run_scan(target: &str, probes: &[String], format: OutputFormat) -> Result<()> {
+async fn run_scan(
+    target: &str,
+    probes: &[String],
+    format: OutputFormat,
+    output: Option<PathBuf>,
+    concurrency: usize,
+) -> Result<()> {
+    if concurrency == 0 {
+        return Err(redteamer_core::error::RedTeamerError::InvalidConfig(
+            "concurrency must be > 0, got 0".into(),
+        ));
+    }
+
     let adapter: Arc<dyn redteamer_core::traits::TargetAdapter> =
         build_adapter(target)?;
 
@@ -161,12 +186,37 @@ async fn run_scan(target: &str, probes: &[String], format: OutputFormat) -> Resu
             .collect()
     };
 
+    let category_map: HashMap<String, redteamer_core::types::OwaspCategory> = probe_ptrs
+        .iter()
+        .map(|p| {
+            (
+                p.name().to_owned(),
+                p.category()
+                    .first()
+                    .copied()
+                    .unwrap_or(redteamer_core::types::OwaspCategory::PromptInjection),
+            )
+        })
+        .collect();
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} Scanning... {msg}")
+            .unwrap(),
+    );
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    let pb_clone = pb.clone();
     let config = redteamer_orchestrator::ScanBuilder::new()
         .target(adapter)
         .probes(probe_ptrs)
+        .concurrency(concurrency)
+        .on_record_progress(move |count| {
+            pb_clone.set_message(format!("{count} records"));
+        })
         .build()?;
 
     let report = config.execute().await;
+    pb.finish_and_clear();
 
     println!(
         "scan finished | session={} | records={} | vulnerable={} | failed_probes={}",
@@ -176,7 +226,48 @@ async fn run_scan(target: &str, probes: &[String], format: OutputFormat) -> Resu
         report.failed_probes.len(),
     );
 
-    // TODO(Week 3): hand `report` to a ReportExporter matching `format`.
+    let breakdown = redteamer_reporters::owasp_mapper::severity_breakdown_from_map(
+        &report.records,
+        &category_map,
+    );
+    if let Some(score) = breakdown.highest_score {
+        let band = if score >= 9.0 {
+            "Critical"
+        } else if score >= 7.0 {
+            "High"
+        } else if score >= 4.0 {
+            "Medium"
+        } else {
+            "Low"
+        };
+        println!(
+            "severity: highest {:.1} ({}) | Critical {} High {} Medium {} Low {}",
+            score, band, breakdown.critical, breakdown.high, breakdown.medium, breakdown.low
+        );
+    } else {
+        println!("severity: none");
+    }
+
+    let findings = redteamer_reporters::owasp_mapper::findings_from_records_with_map(
+        &report.records,
+        &category_map,
+    );
+    let sink = match output {
+        Some(path) => redteamer_reporters::OutputSink::File(path),
+        None => redteamer_reporters::OutputSink::Stdout,
+    };
+    let exporter = match redteamer_reporters::exporter_factory(format.into(), sink) {
+        Ok(exp) => exp,
+        Err(e) => {
+            if format == OutputFormat::Csv {
+                eprintln!("CSV export is not yet supported, use json/markdown/sarif");
+                std::process::exit(1);
+            }
+            return Err(e);
+        }
+    };
+    exporter.export(&findings).await?;
+
     Ok(())
 }
 

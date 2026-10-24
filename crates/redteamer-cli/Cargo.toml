@@ -19,5 +19,7 @@ redteamer-adapters.workspace = true
 redteamer-detectors.workspace = true
 redteamer-probes = { path = "../redteamer-probes" }
 redteamer-orchestrator.workspace = true
+redteamer-reporters.workspace = true
 clap.workspace = true
 tokio.workspace = true
+indicatif = "0.17.11"

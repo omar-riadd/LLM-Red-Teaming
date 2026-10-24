@@ -176,8 +176,8 @@ impl fmt::Display for Verdict {
 /// ```
 /// use redteamer_core::types::CvssVector;
 ///
-/// let v = CvssVector::new("CVSS:3.1/AV:N/AC:L/PR:N/UI:N");
-/// assert_eq!(v.score(), 0.0); // stubbed until Phase 1, Week 2
+/// let v = CvssVector::new("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N");
+/// assert!((v.score() - 9.3).abs() < 0.1);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CvssVector {
@@ -193,14 +193,18 @@ impl CvssVector {
         }
     }
 
-    /// Computes the base score from the vector components.
-    ///
-    /// TODO(Phase 1, Week 2): implement full CVSS v3.1 base-score
-    /// evaluation. For now this is a stub returning `0.0` so callers can
-    /// wire up plumbing without blocking on the scoring engine.
+    /// Computes the base score from the vector components via the RustSec `cvss` crate (FIRST spec, macrovector lookup).
     #[must_use]
     pub fn score(&self) -> f32 {
-        let _ = &self.vector;
+        use std::str::FromStr;
+        if let Ok(v) = cvss::v4::Vector::from_str(&self.vector) {
+            return v.score().value() as f32;
+        }
+        if let Ok(v) = cvss::v3::Base::from_str(&self.vector) {
+            return v.score().value() as f32;
+        }
+        // Defensive fallback: should not happen after owasp_mapper fix (all emitted vectors are valid CVSS 4.0),
+        // but return 0.0 matching the previous stub behavior rather than panicking, so callers get a safe low-severity fallback.
         0.0
     }
 
@@ -429,4 +433,39 @@ pub struct DetectionOutcome {
     /// Short explanation, e.g. the matched rule or pattern.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cvss_v4_score_9_3() {
+        let v = CvssVector::new("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N");
+        assert!((v.score() - 9.3).abs() < 0.1, "got {}", v.score());
+    }
+
+    #[test]
+    fn cvss_v4_score_5_2() {
+        let v = CvssVector::new("CVSS:4.0/AV:L/AC:H/AT:N/PR:N/UI:P/VC:L/VI:L/VA:L/SC:H/SI:H/SA:H");
+        assert!((v.score() - 5.2).abs() < 0.1, "got {}", v.score());
+    }
+
+    #[test]
+    fn cvss_v4_score_6_9() {
+        let v = CvssVector::new("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N");
+        assert!((v.score() - 6.9).abs() < 0.1, "got {}", v.score());
+    }
+
+    #[test]
+    fn cvss_v4_score_8_7() {
+        let v = CvssVector::new("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N");
+        assert!((v.score() - 8.7).abs() < 0.1, "got {}", v.score());
+    }
+
+    #[test]
+    fn cvss_invalid_returns_zero() {
+        let v = CvssVector::new("not-a-vector");
+        assert_eq!(v.score(), 0.0);
+    }
 }

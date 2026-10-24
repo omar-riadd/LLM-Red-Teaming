@@ -17,3 +17,6 @@ chrono.workspace = true
 handlebars.workspace = true
 uuid.workspace = true
 async-trait.workspace = true
+
+[dev-dependencies]
+cvss = { version = "2.2", features = ["v4"] }

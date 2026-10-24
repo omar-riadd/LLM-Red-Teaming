@@ -14,8 +14,10 @@ pub mod llm10;
 
 use redteamer_core::error::Result;
 use redteamer_core::traits::adapter::TargetAdapter;
+use redteamer_core::traits::detector::Detector;
 use redteamer_core::traits::probe::Probe;
 use redteamer_core::types::{AttackRecord, MutationType, Verdict};
+use redteamer_detectors::DetectorPipeline;
 use redteamer_payload::ProbeTemplate;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -90,7 +92,18 @@ pub(crate) async fn run_template(
     target: Arc<dyn TargetAdapter>,
     concurrency: usize,
     evaluate: Arc<dyn Fn(&AttackRecord) -> Verdict + Send + Sync>,
+    detectors: Arc<[Arc<dyn Detector>]>,
 ) -> Result<Vec<AttackRecord>> {
+    let filtered: Vec<Arc<dyn Detector>> = if template.detector_hints.is_empty() {
+        Vec::new()
+    } else {
+        detectors
+            .iter()
+            .filter(|d| template.detector_hints.iter().any(|hint| hint == d.name()))
+            .cloned()
+            .collect()
+    };
+    let filtered = Arc::new(filtered);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency.max(1)));
     let mut tasks = tokio::task::JoinSet::new();
 
@@ -99,6 +112,7 @@ pub(crate) async fn run_template(
         let target = Arc::clone(&target);
         let evaluate = Arc::clone(&evaluate);
         let probe_name = probe_name.to_owned();
+        let filtered = Arc::clone(&filtered);
 
         tasks.spawn(async move {
             let _permit = permit;
@@ -116,8 +130,12 @@ pub(crate) async fn run_template(
                 }
             }
 
-            if record.verdict != Verdict::Error {
-                record.verdict = evaluate(&record);
+            record.verdict = evaluate(&record);
+            if !filtered.is_empty() {
+                let pipeline = DetectorPipeline::from_detectors(filtered.iter().cloned());
+                if let Ok(outcomes) = pipeline.run(&record.prompt, record.response.as_deref()).await {
+                    record.detections = outcomes;
+                }
             }
             // TODO(Phase 2): thread the applied MutationType through
             // template.payloads() so records carry it precisely.
@@ -145,4 +163,180 @@ pub(crate) async fn run_template(
     }
 
     Ok(records)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use redteamer_core::traits::adapter::{AdapterInfo, AdapterResponse, TargetAdapter};
+    use redteamer_core::traits::detector::Detector;
+    use redteamer_detectors::StringMatchDetector;
+    use std::sync::Arc;
+
+    struct MockTarget {
+        response: String,
+    }
+
+    #[async_trait::async_trait]
+    impl TargetAdapter for MockTarget {
+        fn info(&self) -> &AdapterInfo {
+            static INFO: AdapterInfo = AdapterInfo {
+                name: "mock",
+                version: "0.0.0",
+                model: None,
+            };
+            &INFO
+        }
+
+        async fn send(&self, _prompt: &str) -> Result<AdapterResponse> {
+            Ok(AdapterResponse {
+                text: self.response.clone(),
+                completed: true,
+                metadata: serde_json::json!({}),
+            })
+        }
+    }
+
+    fn make_template(hints: Vec<&str>) -> ProbeTemplate {
+        ProbeTemplate {
+            name: "test_probe".to_string(),
+            description: String::new(),
+            owasp_categories: vec![],
+            seeds: vec!["seed".to_string()],
+            mutations: vec![],
+            detector_hints: hints.into_iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn detections_populated_when_hint_matches() {
+        let template = make_template(vec!["test_detector"]);
+        let detector = Arc::new(
+            StringMatchDetector::new("test_detector", "test", vec!["vulnerable"]).unwrap(),
+        ) as Arc<dyn Detector>;
+        let detectors: Arc<[Arc<dyn Detector>]> = Arc::from(vec![detector]);
+        let target: Arc<dyn TargetAdapter> = Arc::new(MockTarget {
+            response: "this is vulnerable".to_string(),
+        });
+        let evaluate = Arc::new(|_: &AttackRecord| Verdict::Resistant) as Arc<dyn Fn(&AttackRecord) -> Verdict + Send + Sync>;
+
+        let records = run_template(
+            "test_probe",
+            &template,
+            uuid::Uuid::new_v4(),
+            target,
+            1,
+            evaluate,
+            detectors,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].detections.len(), 1);
+        assert_eq!(records[0].detections[0].detector_name, "test_detector");
+        assert!(records[0].detections[0].matched);
+    }
+
+    #[tokio::test]
+    async fn detections_empty_when_no_hints() {
+        let template = make_template(vec![]);
+        let detector = Arc::new(
+            StringMatchDetector::new("test_detector", "test", vec!["vulnerable"]).unwrap(),
+        ) as Arc<dyn Detector>;
+        let detectors: Arc<[Arc<dyn Detector>]> = Arc::from(vec![detector]);
+        let target: Arc<dyn TargetAdapter> = Arc::new(MockTarget {
+            response: "vulnerable".to_string(),
+        });
+        let evaluate = Arc::new(|_: &AttackRecord| Verdict::Resistant) as Arc<dyn Fn(&AttackRecord) -> Verdict + Send + Sync>;
+
+        let records = run_template(
+            "test_probe",
+            &template,
+            uuid::Uuid::new_v4(),
+            target,
+            1,
+            evaluate,
+            detectors,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(records[0].detections.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn detections_empty_when_hint_no_match() {
+        let template = make_template(vec!["nonexistent_detector"]);
+        let detector = Arc::new(
+            StringMatchDetector::new("test_detector", "test", vec!["vulnerable"]).unwrap(),
+        ) as Arc<dyn Detector>;
+        let detectors: Arc<[Arc<dyn Detector>]> = Arc::from(vec![detector]);
+        let target: Arc<dyn TargetAdapter> = Arc::new(MockTarget {
+            response: "vulnerable".to_string(),
+        });
+        let evaluate = Arc::new(|_: &AttackRecord| Verdict::Resistant) as Arc<dyn Fn(&AttackRecord) -> Verdict + Send + Sync>;
+
+        let records = run_template(
+            "test_probe",
+            &template,
+            uuid::Uuid::new_v4(),
+            target,
+            1,
+            evaluate,
+            detectors,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(records[0].detections.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn verdict_unaffected_by_detector_filtering() {
+        let template_match = make_template(vec!["test_detector"]);
+        let template_no_match = make_template(vec![]);
+        let detector = Arc::new(
+            StringMatchDetector::new("test_detector", "test", vec!["vulnerable"]).unwrap(),
+        ) as Arc<dyn Detector>;
+        let detectors: Arc<[Arc<dyn Detector>]> = Arc::from(vec![detector.clone()]);
+        let detectors_clone: Arc<[Arc<dyn Detector>]> = Arc::from(vec![detector]);
+
+        let target: Arc<dyn TargetAdapter> = Arc::new(MockTarget {
+            response: "vulnerable".to_string(),
+        });
+
+        // Both should have same verdict from evaluate (Vulnerable), regardless of detections
+        let eval_vuln = Arc::new(|_: &AttackRecord| Verdict::Vulnerable) as Arc<dyn Fn(&AttackRecord) -> Verdict + Send + Sync>;
+        let eval_resistant = Arc::new(|_: &AttackRecord| Verdict::Resistant) as Arc<dyn Fn(&AttackRecord) -> Verdict + Send + Sync>;
+
+        let records_match = run_template(
+            "test_probe",
+            &template_match,
+            uuid::Uuid::new_v4(),
+            Arc::clone(&target),
+            1,
+            Arc::clone(&eval_vuln),
+            detectors,
+        )
+        .await
+        .unwrap();
+        let records_no_match = run_template(
+            "test_probe",
+            &template_no_match,
+            uuid::Uuid::new_v4(),
+            target,
+            1,
+            eval_resistant,
+            detectors_clone,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(records_match[0].verdict, Verdict::Vulnerable);
+        assert_eq!(records_no_match[0].verdict, Verdict::Resistant);
+        // Detections differ but verdicts are independent
+        assert_eq!(records_match[0].detections.len(), 1);
+        assert_eq!(records_no_match[0].detections.len(), 0);
+    }
 }

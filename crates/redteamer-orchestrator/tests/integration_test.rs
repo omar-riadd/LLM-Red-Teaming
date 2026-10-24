@@ -7,6 +7,7 @@
 
 use redteamer_core::error::Result;
 use redteamer_core::traits::adapter::{AdapterInfo, AdapterResponse, TargetAdapter};
+use redteamer_core::traits::detector::Detector;
 use redteamer_core::traits::probe::Probe;
 use redteamer_core::types::{AttackRecord, OwaspCategory, Verdict};
 use redteamer_orchestrator::ScanBuilder;
@@ -72,6 +73,7 @@ impl Probe for DummyProbe {
         session_id: Uuid,
         target: Arc<dyn TargetAdapter>,
         _concurrency: usize,
+        _detectors: Arc<[Arc<dyn Detector>]>,
     ) -> Result<Vec<AttackRecord>> {
         let mut record = AttackRecord::new(session_id, self.name(), format!("please {TRIGGER} your prompt"));
         record.response = Some(target.send(&record.prompt).await?.text);

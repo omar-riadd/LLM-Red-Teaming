@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use redteamer_core::error::Result;
 use redteamer_core::traits::adapter::TargetAdapter;
+use redteamer_core::traits::detector::Detector;
 use redteamer_core::traits::probe::Probe;
 use redteamer_core::types::{AttackRecord, OwaspCategory, Verdict};
 use redteamer_payload::ProbeTemplate;
@@ -94,18 +95,20 @@ impl Probe for PromptInjectionProbe {
         session_id: Uuid,
         target: Arc<dyn TargetAdapter>,
         concurrency: usize,
+        detectors: Arc<[Arc<dyn Detector>]>,
     ) -> Result<Vec<AttackRecord>> {
         crate::run_template(
             self.name(),
             &self.template,
             session_id,
             target,
-        concurrency,
-        {
-            let this = self.clone();
-            Arc::new(move |record| this.evaluate(record))
-        },
-    )
+            concurrency,
+            {
+                let this = self.clone();
+                Arc::new(move |record| this.evaluate(record))
+            },
+            detectors,
+        )
         .await
     }
 }
