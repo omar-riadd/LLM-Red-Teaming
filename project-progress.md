@@ -267,4 +267,38 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
   - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
   - Live CLI scan verified with `pdfinfo` and `pdftotext` confirming 2-page valid PDF 1.4 document.
 
+---
+
+## Phase 27 — Distributed Worker Pool & Multi-IP Proxy Rotation Engine (FG2)
+- [x] **27.1** Implemented pure-Rust, zero-dependency proxy rotation and circuit-breaker engine in `crates/redteamer-adapters/src/proxy.rs`:
+  - `ProxyRotationStrategy` enum (`RoundRobin`, `Random`, `LeastLoaded`, `Failover`) with `serde` serialization and `FromStr` parsing.
+  - `ProxyNode` maintaining atomic telemetry: `in_flight` active connections, `failures` counter, `total_requests` count, and thread-safe `cooldown_until` timestamp.
+  - `ProxyPool` engine with `new`, `from_slice`, `from_file` (parsing comments `#` and ignoring empty lines), `from_env` (`REDTEAMER_PROXY_POOL`, `REDTEAMER_PROXIES`), `select_proxy`, `guard`, `record_success`, and `record_failure` with circuit-breaker recovery fallback when all nodes are in cooldown.
+  - `RotatingAdapter` decorator implementing `TargetAdapter`: distributes traffic across sub-adapters, retries retryable transport/rate-limit failures (`err.is_retryable()`) automatically on subsequent healthy nodes up to `max_retries`, and reports aggregate health.
+  - Added 5 unit tests validating round-robin wrap-around, circuit breaker cooldown and recovery, file parsing with comments, and automatic failover on HTTP 429.
+- [x] **27.2** Extended `crates/redteamer-adapters/src/lib.rs` and concrete adapters:
+  - Exposed `pub mod proxy;` and re-exported `ProxyNode, ProxyPool, ProxyRotationStrategy, RotatingAdapter`.
+  - Added `build_http_client_with_timeout_and_proxy(base_url, timeout, proxy_url)` with loopback bypass.
+  - Added `with_proxy(proxy_url)` methods to `OpenAiAdapter`, `AnthropicAdapter`, `OllamaAdapter`, `GeminiAdapter`, `AzureOpenAiAdapter`, `OpenAiCompatibleAdapter`, and `McpAdapter`.
+- [x] **27.3** Deterministic Distributed Worker Sharding in `crates/redteamer-orchestrator/src/scan.rs`:
+  - Added `worker_shard: Option<(usize, usize)>` to `ScanConfig` and `ScanBuilder`.
+  - Added `ScanBuilder::worker_shard(worker_id, total_workers)` with validation (`total_workers > 0` and `worker_id < total_workers`).
+  - Partitioned probes deterministically in `ScanConfig::execute` using modulo hash: `idx % total_workers == worker_id`, guaranteeing disjoint task assignment across workers with zero duplicate attacks and full aggregate cluster coverage.
+  - Added unit tests validating disjoint probe partitioning across multiple workers and invalid worker config rejection.
+- [x] **27.4** CLI Integration in `crates/redteamer-cli/src/adapter_builder.rs` and `cmd/scan.rs`:
+  - Implemented `build_adapter_with_proxy` and `build_adapter_with_pool` wrapping targets in `RotatingAdapter` when a proxy pool is configured.
+  - Added CLI flags: `--proxies <URLS>`, `--proxy-file <PATH>`, `--proxy-strategy <STRATEGY>`, `--worker-id <IDX>`, and `--total-workers <TOTAL>`.
+  - Added multi-checkpoint resume support (`--resume path1.jsonl,path2.jsonl` or multiple `--resume` flags) via `load_resume_record_paths`.
+  - Added unit test `build_adapter_with_pool_creates_rotating_adapter`.
+- [x] **27.5** Added integration tests in `crates/redteamer-cli/tests/cli_integration.rs`:
+  - `scan_with_proxy_rotation_and_strategies`: verifies CLI execution with `--proxies` and `--proxy-strategy`.
+  - `scan_distributed_worker_sharding`: verifies disjoint probe execution across worker 0 and worker 1.
+  - `scan_multi_checkpoint_resume`: verifies multi-checkpoint JSONL loading and resumption.
+- [x] **27.6** Full Workspace Verification:
+  - All 115 tests passing (`cargo test --workspace --offline` across 8 crates, 9 integration suites, and 5 doc-tests).
+  - Clippy `-D warnings` 100% clean (0 warnings, 0 errors).
+  - `cargo fmt --all -- --check` 100% clean.
+  - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
+
+
 

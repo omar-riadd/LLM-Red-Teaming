@@ -29,7 +29,7 @@ graph TD
 | Crate | Purpose |
 |---|---|
 | `redteamer-core` | Core domain types (`OwaspCategory`, `AttackRecord`, `Finding`, `CvssVector`, `SeverityBreakdown`, `ProbeSummary`, `TokenUsage`, `ToolDefinition`, `ToolCall`), error model (`is_retryable()`), and async trait contracts (`TargetAdapter::send_chat`, `Detector`, `Probe`, `ReportExporter`). |
-| `redteamer-adapters` | Chat-, tool-, and protocol-aware backends (`OllamaAdapter`, `OpenAiAdapter`, `AnthropicAdapter`, `GeminiAdapter`, `AzureOpenAiAdapter`, `OpenAiCompatibleAdapter`, and `McpAdapter` for HTTP & Stdio Model Context Protocol servers) with token-bucket rate limiting, real-time SSE streaming early termination, and `GenerationOptions`. |
+| `redteamer-adapters` | Chat-, tool-, and protocol-aware backends (`OllamaAdapter`, `OpenAiAdapter`, `AnthropicAdapter`, `GeminiAdapter`, `AzureOpenAiAdapter`, `OpenAiCompatibleAdapter`, and `McpAdapter` for HTTP & Stdio Model Context Protocol servers) with multi-IP proxy rotation (`ProxyPool`, `RotatingAdapter`), circuit-breaker cooldown recovery, token-bucket rate limiting, real-time SSE streaming early termination, and `GenerationOptions`. |
 | `redteamer-payload` | YAML `ProbeTemplate` loader with inline detector rules, tool schemas, canary injection, static & adaptive multi-turn conversation chains, and `MutationPipeline` (`Identity`, `Base64`, `Rot13`, `Reverse`, `Uppercase`, `Wrap`, `Leetspeak`, `Homoglyph`, `ZeroWidth`, `JsonTaskWrap`). |
 | `redteamer-detectors` | Concurrent `DetectorPipeline` with pre-detection response de-obfuscation (`zero-width`, `Base64`, `Hex`, `ROT13`), `StringMatchDetector` (SIMD `memchr`), `RegexSetDetector`, `CanaryDetector`, `LengthDetector`, `ToolCallDetector`, `LlmJudgeDetector`, and ONNX Runtime `SemanticDetector`. |
 | `redteamer-probes` | Unified `TemplateProbe` engine embedding all 11 OWASP LLM 2025 templates (`templates/llm01_*.yaml` – `templates/llm10_*.yaml`), stateful PAIR tree search attacker loop, and custom directory loading (`--probes-dir`). |
@@ -95,16 +95,25 @@ cargo run -p redteamer-cli -- scan --target mock --export-dpo dpo_dataset.json -
 # 7. Export executive PDF report deliverable with scorecard, OWASP matrix & roadmap
 cargo run -p redteamer-cli -- scan --target mock --probes llm01_prompt_injection --format markdown --export-pdf executive_report.pdf
 
-# 8. Run adaptive multi-turn evaluations with a secondary attacker model (stateful PAIR tree search)
+# 8. Multi-IP proxy rotation with automatic circuit-breaker failover (round-robin, random, least-loaded, failover)
+cargo run -p redteamer-cli -- scan --target openai --proxies http://proxy1:8080,http://proxy2:8080 --proxy-strategy round-robin --format markdown
+
+# 9. Deterministic distributed worker sharding across cluster containers (zero duplicate attacks)
+cargo run -p redteamer-cli -- scan --target mock --worker-id 0 --total-workers 2 --stream-jsonl shard0.jsonl
+cargo run -p redteamer-cli -- scan --target mock --worker-id 1 --total-workers 2 --stream-jsonl shard1.jsonl
+# Consolidate distributed shard checkpoints into an executive deliverable:
+cargo run -p redteamer-cli -- scan --target mock --resume shard0.jsonl,shard1.jsonl --format pdf --output full_cluster_report.pdf
+
+# 10. Run adaptive multi-turn evaluations with a secondary attacker model (stateful PAIR tree search)
 cargo run -p redteamer-cli -- scan --target ollama --model llama3.2 --attacker-target ollama --attacker-model llama3.2 --format html --output report.html
 
-# 9. Enforce a CI quality gate (exits with code 2 if any High/Critical finding occurs)
+# 11. Enforce a CI quality gate (exits with code 2 if any High/Critical finding occurs)
 cargo run -p redteamer-cli -- scan --target mock --fail-on high --format json --output current.json
 
-# 10. Compare two JSON scan reports for per-probe ASR & finding-level regressions
+# 12. Compare two JSON scan reports for per-probe ASR & finding-level regressions
 cargo run -p redteamer-cli -- diff baseline.json current.json --fail-on-regression
 
-# 11. Run scan with bundled ONNX sentence-transformer semantic detector
+# 13. Run scan with bundled ONNX sentence-transformer semantic detector
 cargo run -p redteamer-cli -- scan --target mock --semantic-model builtin --semantic-threshold 0.78
 ```
 

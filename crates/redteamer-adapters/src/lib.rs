@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod ollama;
 pub mod openai;
 pub mod openai_compatible;
+pub mod proxy;
 pub mod stream;
 
 use redteamer_core::error::{RedTeamerError, Result};
@@ -23,6 +24,7 @@ pub use mcp::McpAdapter;
 pub use ollama::OllamaAdapter;
 pub use openai::OpenAiAdapter;
 pub use openai_compatible::OpenAiCompatibleAdapter;
+pub use proxy::{ProxyNode, ProxyPool, ProxyRotationStrategy, RotatingAdapter};
 pub use stream::{
     consume_stream, extract_anthropic_delta, extract_ollama_delta, extract_openai_delta,
     parse_sse_data, StreamAccumulator,
@@ -291,16 +293,10 @@ pub(crate) fn is_loopback_url(url: &str) -> bool {
 /// # Errors
 /// Returns [`RedTeamerError::Adapter`] if the client builder fails.
 pub fn build_http_client(base_url: &str) -> Result<reqwest::Client> {
-    build_http_client_with_timeout(base_url, Duration::from_secs(120))
+    build_http_client_with_timeout_and_proxy(base_url, Duration::from_secs(120), None)
 }
 
 /// Builds a standardized [`reqwest::Client`] for LLM target adapters with custom timeout.
-///
-/// Features:
-/// - Configurable request timeout.
-/// - Automatic proxy bypass for loopback/localhost targets (`127.0.0.1`, `localhost`, `[::1]`).
-/// - Optional TLS validation bypass when `REDTEAMER_INSECURE_TLS=1` is set (for isolated lab testing).
-/// - Custom CA root certificate loading when `REDTEAMER_CA_BUNDLE` or `SSL_CERT_FILE` points to a PEM file.
 ///
 /// # Errors
 /// Returns [`RedTeamerError::Adapter`] if the client builder fails.
@@ -308,10 +304,36 @@ pub fn build_http_client_with_timeout(
     base_url: &str,
     timeout: Duration,
 ) -> Result<reqwest::Client> {
+    build_http_client_with_timeout_and_proxy(base_url, timeout, None)
+}
+
+/// Builds a standardized [`reqwest::Client`] for LLM target adapters with custom timeout and optional proxy.
+///
+/// Features:
+/// - Configurable request timeout.
+/// - Optional egress proxy routing when `proxy_url` is provided (`reqwest::Proxy::all`).
+/// - Automatic proxy bypass for loopback/localhost targets (`127.0.0.1`, `localhost`, `[::1]`).
+/// - Optional TLS validation bypass when `REDTEAMER_INSECURE_TLS=1` is set (for isolated lab testing).
+/// - Custom CA root certificate loading when `REDTEAMER_CA_BUNDLE` or `SSL_CERT_FILE` points to a PEM file.
+///
+/// # Errors
+/// Returns [`RedTeamerError::Adapter`] if the client builder fails or proxy URL is invalid.
+pub fn build_http_client_with_timeout_and_proxy(
+    base_url: &str,
+    timeout: Duration,
+    proxy_url: Option<&str>,
+) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder().timeout(timeout);
 
     if is_loopback_url(base_url) {
         builder = builder.no_proxy();
+    } else if let Some(p) = proxy_url {
+        let proxy = reqwest::Proxy::all(p).map_err(|e| RedTeamerError::Adapter {
+            adapter: "http-client",
+            message: format!("invalid proxy URL '{p}': {e}"),
+            source: Some(Box::new(e)),
+        })?;
+        builder = builder.proxy(proxy);
     }
 
     if let Ok(val) = std::env::var("REDTEAMER_INSECURE_TLS") {

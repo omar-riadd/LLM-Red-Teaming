@@ -313,3 +313,143 @@ fn scan_with_export_pdf_writes_valid_document() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn scan_with_proxy_rotation_and_strategies() {
+    let out = cli_bin()
+        .args([
+            "scan",
+            "--target",
+            "mock",
+            "--probes",
+            "llm02_sensitive_info_disclosure",
+            "--proxies",
+            "http://proxy1.internal:8080,http://proxy2.internal:8080",
+            "--proxy-strategy",
+            "round-robin",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("scan with proxy pool failed to run");
+
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("proxy rotation active | 2 node(s) | strategy=RoundRobin"));
+}
+
+#[test]
+fn scan_distributed_worker_sharding() {
+    let out_w0 = cli_bin()
+        .args([
+            "scan",
+            "--target",
+            "mock",
+            "--probes",
+            "llm01_prompt_injection,llm02_sensitive_info_disclosure",
+            "--worker-id",
+            "0",
+            "--total-workers",
+            "2",
+            "--format",
+            "jsonl",
+        ])
+        .output()
+        .expect("worker 0 failed");
+
+    assert!(out_w0.status.success());
+    let stderr_w0 = String::from_utf8_lossy(&out_w0.stderr);
+    assert!(stderr_w0.contains("worker sharding active | worker 0 of 2"));
+    let stdout_w0 = String::from_utf8_lossy(&out_w0.stdout);
+
+    let out_w1 = cli_bin()
+        .args([
+            "scan",
+            "--target",
+            "mock",
+            "--probes",
+            "llm01_prompt_injection,llm02_sensitive_info_disclosure",
+            "--worker-id",
+            "1",
+            "--total-workers",
+            "2",
+            "--format",
+            "jsonl",
+        ])
+        .output()
+        .expect("worker 1 failed");
+
+    assert!(out_w1.status.success());
+    let stderr_w1 = String::from_utf8_lossy(&out_w1.stderr);
+    assert!(stderr_w1.contains("worker sharding active | worker 1 of 2"));
+    let stdout_w1 = String::from_utf8_lossy(&out_w1.stdout);
+
+    // One worker ran llm01, the other ran llm02 (disjoint partition)
+    let w0_has_llm01 = stdout_w0.contains("\"probe_name\":\"llm01_prompt_injection\"");
+    let w0_has_llm02 = stdout_w0.contains("\"probe_name\":\"llm02_sensitive_info_disclosure\"");
+    let w1_has_llm01 = stdout_w1.contains("\"probe_name\":\"llm01_prompt_injection\"");
+    let w1_has_llm02 = stdout_w1.contains("\"probe_name\":\"llm02_sensitive_info_disclosure\"");
+
+    assert!(
+        (w0_has_llm01 && !w0_has_llm02 && !w1_has_llm01 && w1_has_llm02)
+            || (!w0_has_llm01 && w0_has_llm02 && w1_has_llm01 && !w1_has_llm02),
+        "workers must execute disjoint probe sets"
+    );
+}
+
+#[test]
+fn scan_multi_checkpoint_resume() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("redteamer_multi_resume_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).expect("failed to create temp dir");
+
+    let session_id = redteamer_core::types::Uuid::new_v4();
+    let mut rec1 = redteamer_core::types::AttackRecord::new(
+        session_id,
+        "llm02_sensitive_info_disclosure",
+        "custom checkpoint 1 prompt",
+    );
+    rec1.verdict = redteamer_core::types::Verdict::Resistant;
+    rec1.response = Some("checkpoint 1 resp".into());
+
+    let mut rec2 = redteamer_core::types::AttackRecord::new(
+        session_id,
+        "llm02_sensitive_info_disclosure",
+        "custom checkpoint 2 prompt",
+    );
+    rec2.verdict = redteamer_core::types::Verdict::Vulnerable;
+    rec2.response = Some("checkpoint 2 resp".into());
+
+    let path1 = temp_dir.join("shard1.jsonl");
+    let path2 = temp_dir.join("shard2.jsonl");
+    fs::write(&path1, serde_json::to_string(&rec1).unwrap() + "\n").unwrap();
+    fs::write(&path2, serde_json::to_string(&rec2).unwrap() + "\n").unwrap();
+
+    let resume_arg = format!("{},{}", path1.display(), path2.display());
+
+    let out = cli_bin()
+        .args([
+            "scan",
+            "--target",
+            "mock",
+            "--probes",
+            "llm02_sensitive_info_disclosure",
+            "--resume",
+            &resume_arg,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("scan with multi-resume failed to run");
+
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("resuming scan | loaded 2 completed records from 2 checkpoint(s)"));
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("custom checkpoint 1 prompt"));
+    assert!(stdout.contains("custom checkpoint 2 prompt"));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}

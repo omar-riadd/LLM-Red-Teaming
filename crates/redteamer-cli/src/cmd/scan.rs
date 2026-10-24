@@ -106,9 +106,29 @@ pub struct ScanArgs {
     #[arg(long)]
     pub stream_jsonl: Option<PathBuf>,
 
-    /// Resume an interrupted scan by loading completed AttackRecords from a JSONL checkpoint file.
+    /// Resume an interrupted scan by loading completed AttackRecords from one or more JSONL checkpoint files.
+    #[arg(long, value_delimiter = ',')]
+    pub resume: Vec<PathBuf>,
+
+    /// Comma-separated list of HTTP/SOCKS5 proxy URLs for round-robin IP rotation.
+    #[arg(long, value_delimiter = ',')]
+    pub proxies: Vec<String>,
+
+    /// Text file with one proxy URL per line (ignoring comments and empty lines).
     #[arg(long)]
-    pub resume: Option<PathBuf>,
+    pub proxy_file: Option<PathBuf>,
+
+    /// Proxy rotation strategy: round-robin, random, least-loaded, or failover (default round-robin).
+    #[arg(long)]
+    pub proxy_strategy: Option<String>,
+
+    /// 0-indexed distributed worker identifier for sharded cluster scans.
+    #[arg(long)]
+    pub worker_id: Option<usize>,
+
+    /// Total number of distributed cluster workers.
+    #[arg(long)]
+    pub total_workers: Option<usize>,
 
     /// Concurrent requests per probe (default 8).
     #[arg(long, default_value_t = 8)]
@@ -173,32 +193,41 @@ impl From<OutputFormat> for ReportFormat {
     }
 }
 
+#[allow(dead_code)]
 pub fn load_resume_records(path: &Path) -> Result<Vec<redteamer_core::types::AttackRecord>> {
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let raw = std::fs::read_to_string(path).map_err(|e| {
-        RedTeamerError::InvalidConfig(format!(
-            "failed to read resume checkpoint {}: {e}",
-            path.display()
-        ))
-    })?;
+    load_resume_record_paths(&[path.to_path_buf()])
+}
+
+pub fn load_resume_record_paths(
+    paths: &[PathBuf],
+) -> Result<Vec<redteamer_core::types::AttackRecord>> {
     let mut records = Vec::new();
-    for (idx, line) in raw.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+    for path in paths {
+        if !path.exists() {
             continue;
         }
-        let rec: redteamer_core::types::AttackRecord =
-            serde_json::from_str(trimmed).map_err(|e| {
-                RedTeamerError::InvalidConfig(format!(
-                    "malformed AttackRecord JSONL on line {} of {}: {e}",
-                    idx + 1,
-                    path.display()
-                ))
-            })?;
-        if rec.verdict != Verdict::Error {
-            records.push(rec);
+        let raw = std::fs::read_to_string(path).map_err(|e| {
+            RedTeamerError::InvalidConfig(format!(
+                "failed to read resume checkpoint {}: {e}",
+                path.display()
+            ))
+        })?;
+        for (idx, line) in raw.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let rec: redteamer_core::types::AttackRecord =
+                serde_json::from_str(trimmed).map_err(|e| {
+                    RedTeamerError::InvalidConfig(format!(
+                        "malformed AttackRecord JSONL on line {} of {}: {e}",
+                        idx + 1,
+                        path.display()
+                    ))
+                })?;
+            if rec.verdict != Verdict::Error {
+                records.push(rec);
+            }
         }
     }
     Ok(records)
@@ -219,29 +248,55 @@ pub async fn run_scan(args: ScanArgs) -> Result<bool> {
         ..GenerationOptions::default()
     };
 
-    let adapter = crate::adapter_builder::build_adapter(
+    let strategy = match args.proxy_strategy.as_deref() {
+        Some(s) => s.parse::<redteamer_adapters::ProxyRotationStrategy>()?,
+        None => redteamer_adapters::ProxyRotationStrategy::RoundRobin,
+    };
+
+    let proxy_pool = if !args.proxies.is_empty() {
+        Some(redteamer_adapters::ProxyPool::new(
+            args.proxies.clone(),
+            strategy,
+        )?)
+    } else if let Some(file_path) = &args.proxy_file {
+        Some(redteamer_adapters::ProxyPool::from_file(
+            file_path, strategy,
+        )?)
+    } else {
+        redteamer_adapters::ProxyPool::from_env(strategy)?
+    };
+
+    if let Some(pool) = &proxy_pool {
+        eprintln!(
+            "proxy rotation active | {} node(s) | strategy={:?}",
+            pool.len(),
+            pool.strategy()
+        );
+    }
+
+    let adapter = crate::adapter_builder::build_adapter_with_pool(
         &args.target,
         args.model.as_deref(),
         args.base_url.as_deref(),
         args.rps,
         default_opts,
+        proxy_pool,
     )?;
 
     if !args.skip_health_check {
         adapter.health_check().await?;
     }
 
-    let resumed_records = match &args.resume {
-        Some(path) => {
-            let loaded = load_resume_records(path)?;
-            eprintln!(
-                "resuming scan | loaded {} completed records from {}",
-                loaded.len(),
-                path.display()
-            );
-            loaded
-        }
-        None => Vec::new(),
+    let resumed_records = if args.resume.is_empty() {
+        Vec::new()
+    } else {
+        let loaded = load_resume_record_paths(&args.resume)?;
+        eprintln!(
+            "resuming scan | loaded {} completed records from {} checkpoint(s)",
+            loaded.len(),
+            args.resume.len()
+        );
+        loaded
     };
 
     eprintln!(
@@ -389,6 +444,16 @@ pub async fn run_scan(args: ScanArgs) -> Result<bool> {
         .on_record_progress(move |count| {
             pb_clone.set_message(format!("{count} records"));
         });
+
+    if let (Some(worker_id), Some(total_workers)) = (args.worker_id, args.total_workers) {
+        builder = builder.worker_shard(worker_id, total_workers);
+        eprintln!("worker sharding active | worker {worker_id} of {total_workers}");
+    } else if args.worker_id.is_some() || args.total_workers.is_some() {
+        return Err(RedTeamerError::InvalidConfig(
+            "--worker-id and --total-workers must both be provided together for distributed scans"
+                .into(),
+        ));
+    }
 
     if let Some(attacker_target) = &args.attacker_target {
         let attacker_adapter = crate::adapter_builder::build_adapter(

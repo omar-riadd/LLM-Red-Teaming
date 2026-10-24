@@ -246,6 +246,23 @@ impl McpAdapter {
         }
     }
 
+    /// Reconfigures the HTTP client to route requests through the specified proxy.
+    ///
+    /// # Errors
+    /// Returns [`RedTeamerError::Adapter`] if the proxy URL or HTTP client is invalid.
+    pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self> {
+        let base_url = match &self.transport {
+            McpTransport::Http { endpoint, .. } => endpoint.as_str(),
+            McpTransport::Stdio { .. } => "http://127.0.0.1",
+        };
+        self.client = crate::build_http_client_with_timeout_and_proxy(
+            base_url,
+            std::time::Duration::from_secs(120),
+            Some(proxy_url),
+        )?;
+        Ok(self)
+    }
+
     /// Dispatches a JSON-RPC 2.0 request over the configured transport.
     async fn call_rpc<P: Serialize, R: serde::de::DeserializeOwned + Send + 'static>(
         &self,

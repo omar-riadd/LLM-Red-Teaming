@@ -82,6 +82,19 @@ impl AnthropicAdapter {
         self.default_options = opts;
         self
     }
+
+    /// Reconfigures the HTTP client to route requests through the specified proxy.
+    ///
+    /// # Errors
+    /// Returns [`RedTeamerError::Adapter`] if the proxy URL or HTTP client is invalid.
+    pub fn with_proxy(mut self, proxy_url: &str) -> Result<Self> {
+        self.client = crate::build_http_client_with_timeout_and_proxy(
+            &self.base_url,
+            std::time::Duration::from_secs(120),
+            Some(proxy_url),
+        )?;
+        Ok(self)
+    }
 }
 
 #[derive(Debug, Serialize)]

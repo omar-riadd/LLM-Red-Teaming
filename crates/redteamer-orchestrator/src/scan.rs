@@ -106,6 +106,7 @@ pub struct ScanConfig {
     pub detectors: Vec<Arc<dyn Detector>>,
     pub concurrency: usize,
     pub resume_records: Vec<AttackRecord>,
+    pub worker_shard: Option<(usize, usize)>,
     pub(crate) progress_callback: Option<Arc<dyn Fn(usize) + Send + Sync>>,
     pub(crate) record_callback: Option<RecordCallback>,
 }
@@ -121,6 +122,7 @@ impl std::fmt::Debug for ScanConfig {
             .field("detector_count", &self.detectors.len())
             .field("concurrency", &self.concurrency)
             .field("resume_records", &self.resume_records.len())
+            .field("worker_shard", &self.worker_shard)
             .finish()
     }
 }
@@ -162,7 +164,19 @@ impl ScanConfig {
         });
         let mut tasks = JoinSet::new();
 
-        for probe in self.probes {
+        let probes: Vec<Arc<dyn Probe>> =
+            if let Some((worker_id, total_workers)) = self.worker_shard {
+                self.probes
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(idx, _)| idx % total_workers == worker_id)
+                    .map(|(_, p)| p)
+                    .collect()
+            } else {
+                self.probes
+            };
+
+        for probe in probes {
             let session_id = self.session_id;
             let target = Arc::clone(&throttled_target);
             let concurrency = self.concurrency;
@@ -286,6 +300,7 @@ pub struct ScanBuilder {
     concurrency: Option<usize>,
     session_id: Option<Uuid>,
     resume_records: Vec<AttackRecord>,
+    worker_shard: Option<(usize, usize)>,
     progress_callback: Option<Arc<dyn Fn(usize) + Send + Sync>>,
     record_callback: Option<RecordCallback>,
 }
@@ -301,6 +316,7 @@ impl ScanBuilder {
             concurrency: None,
             session_id: None,
             resume_records: Vec::new(),
+            worker_shard: None,
             progress_callback: None,
             record_callback: None,
         }
@@ -363,6 +379,15 @@ impl ScanBuilder {
         self
     }
 
+    /// Partitions probes deterministically for distributed worker runs.
+    ///
+    /// Probes are distributed via round-robin index modulo: `probe_index % total_workers == worker_id`.
+    #[must_use]
+    pub const fn worker_shard(mut self, worker_id: usize, total_workers: usize) -> Self {
+        self.worker_shard = Some((worker_id, total_workers));
+        self
+    }
+
     /// Registers a callback fired after each completed request, with the running total request count.
     #[must_use]
     pub fn on_record_progress(mut self, callback: impl Fn(usize) + Send + Sync + 'static) -> Self {
@@ -384,8 +409,21 @@ impl ScanBuilder {
     /// Validates and freezes the configuration.
     ///
     /// # Errors
-    /// Returns [`RedTeamerError::InvalidConfig`] if no target was set.
+    /// Returns [`RedTeamerError::InvalidConfig`] if no target was set, or if worker shard settings are invalid.
     pub fn build(self) -> Result<ScanConfig> {
+        if let Some((worker_id, total_workers)) = self.worker_shard {
+            if total_workers == 0 {
+                return Err(RedTeamerError::InvalidConfig(
+                    "total_workers must be greater than 0".into(),
+                ));
+            }
+            if worker_id >= total_workers {
+                return Err(RedTeamerError::InvalidConfig(format!(
+                    "worker_id ({worker_id}) must be less than total_workers ({total_workers})"
+                )));
+            }
+        }
+
         Ok(ScanConfig {
             session_id: self.session_id.unwrap_or_else(Uuid::new_v4),
             target: self.target.ok_or_else(|| {
@@ -399,6 +437,7 @@ impl ScanBuilder {
                 .filter(|c| *c > 0)
                 .unwrap_or(DEFAULT_CONCURRENCY),
             resume_records: self.resume_records,
+            worker_shard: self.worker_shard,
             progress_callback: self.progress_callback,
             record_callback: self.record_callback,
         })
@@ -620,5 +659,77 @@ mod tests {
         let mut streamed_prompts = streamed.lock().unwrap().clone();
         streamed_prompts.sort();
         assert_eq!(streamed_prompts, vec!["p2".to_owned(), "p3".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn worker_sharding_partitions_probes_disjointly() {
+        let adapter = Arc::new(ConcurrencyTrackingAdapter::new());
+        let probe_count = 7;
+        let total_workers = 3;
+
+        let mut all_executed_probes = Vec::new();
+
+        for worker_id in 0..total_workers {
+            let probes: Vec<Arc<dyn Probe>> = (0..probe_count)
+                .map(|i| {
+                    Arc::new(MultiRequestProbe {
+                        name: format!("probe_{i}"),
+                        prompts: vec![format!("p_{i}")],
+                    }) as Arc<dyn Probe>
+                })
+                .collect();
+
+            let report = ScanBuilder::new()
+                .target(adapter.clone())
+                .probes(probes)
+                .worker_shard(worker_id, total_workers)
+                .build()
+                .unwrap()
+                .execute()
+                .await;
+
+            let worker_probes: Vec<String> =
+                report.records.into_iter().map(|r| r.probe_name).collect();
+
+            // Verify all probes assigned to this worker satisfy idx % total_workers == worker_id
+            for name in &worker_probes {
+                let idx: usize = name
+                    .strip_prefix("probe_")
+                    .expect("probe name prefix")
+                    .parse()
+                    .unwrap();
+                assert_eq!(idx % total_workers, worker_id);
+            }
+            all_executed_probes.extend(worker_probes);
+        }
+
+        all_executed_probes.sort();
+        let expected: Vec<String> = (0..probe_count).map(|i| format!("probe_{i}")).collect();
+        assert_eq!(
+            all_executed_probes, expected,
+            "Shards must partition probes with zero duplicates and full aggregate coverage"
+        );
+    }
+
+    #[test]
+    fn invalid_worker_shard_config_rejected() {
+        let adapter = Arc::new(ConcurrencyTrackingAdapter::new());
+        let err = ScanBuilder::new()
+            .target(adapter.clone())
+            .worker_shard(2, 2)
+            .build()
+            .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("worker_id (2) must be less than total_workers (2)"));
+
+        let err0 = ScanBuilder::new()
+            .target(adapter)
+            .worker_shard(0, 0)
+            .build()
+            .unwrap_err();
+        assert!(err0
+            .to_string()
+            .contains("total_workers must be greater than 0"));
     }
 }

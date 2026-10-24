@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use redteamer_adapters::{
     AnthropicAdapter, AzureOpenAiAdapter, GeminiAdapter, McpAdapter, OllamaAdapter, OpenAiAdapter,
-    OpenAiCompatibleAdapter,
+    OpenAiCompatibleAdapter, ProxyPool, RotatingAdapter,
 };
 use redteamer_core::error::{RedTeamerError, Result};
 use redteamer_core::traits::adapter::{
@@ -116,6 +116,29 @@ pub fn build_adapter(
     rps: Option<u32>,
     default_opts: GenerationOptions,
 ) -> Result<Arc<dyn TargetAdapter>> {
+    build_adapter_with_proxy(
+        target,
+        model_override,
+        base_url_override,
+        rps,
+        default_opts,
+        None,
+    )
+}
+
+/// Builds an adapter for the given provider string or URL, optionally configured with an HTTP proxy.
+///
+/// # Errors
+/// Returns [`RedTeamerError::InvalidConfig`] if required environment variables
+/// are missing or the target specification is unrecognized.
+pub fn build_adapter_with_proxy(
+    target: &str,
+    model_override: Option<&str>,
+    base_url_override: Option<&str>,
+    rps: Option<u32>,
+    default_opts: GenerationOptions,
+    proxy_url: Option<&str>,
+) -> Result<Arc<dyn TargetAdapter>> {
     let rps = f64::from(rps.unwrap_or(50));
     let target_lower = target.to_lowercase();
 
@@ -131,12 +154,15 @@ pub fn build_adapter(
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("OPENAI_MODEL").ok())
                 .unwrap_or_else(|| "gpt-4o-mini".to_owned());
-            let adapter = match base_url_override {
+            let mut adapter = match base_url_override {
                 Some(url) => OpenAiAdapter::with_base_url(api_key, model, url)?,
                 None => OpenAiAdapter::new(api_key, model)?,
             }
             .with_rate_limit(rps)
             .with_default_options(default_opts);
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         "ollama" => {
@@ -148,9 +174,12 @@ pub fn build_adapter(
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("OLLAMA_MODEL").ok())
                 .unwrap_or_else(|| "llama3.2".to_owned());
-            let adapter = OllamaAdapter::new(base_url, model)?
+            let mut adapter = OllamaAdapter::new(base_url, model)?
                 .with_rate_limit(rps)
                 .with_default_options(default_opts);
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         "anthropic" => {
@@ -161,12 +190,15 @@ pub fn build_adapter(
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("ANTHROPIC_MODEL").ok())
                 .unwrap_or_else(|| "claude-sonnet-4-5".to_owned());
-            let adapter = match base_url_override {
+            let mut adapter = match base_url_override {
                 Some(url) => AnthropicAdapter::with_base_url(api_key, model, url)?,
                 None => AnthropicAdapter::new(api_key, model)?,
             }
             .with_rate_limit(rps)
             .with_default_options(default_opts);
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         "gemini" => {
@@ -181,12 +213,15 @@ pub fn build_adapter(
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("GEMINI_MODEL").ok())
                 .unwrap_or_else(|| "gemini-1.5-flash".to_owned());
-            let adapter = match base_url_override {
+            let mut adapter = match base_url_override {
                 Some(url) => GeminiAdapter::with_base_url(api_key, model, url)?,
                 None => GeminiAdapter::new(api_key, model)?,
             }
             .with_rate_limit(rps)
             .with_default_options(default_opts);
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         "azure" => {
@@ -210,10 +245,13 @@ pub fn build_adapter(
                 .unwrap_or_else(|| "gpt-4o-mini".to_owned());
             let api_version = std::env::var("AZURE_OPENAI_API_VERSION")
                 .unwrap_or_else(|_| "2024-06-01".to_owned());
-            let adapter =
+            let mut adapter =
                 AzureOpenAiAdapter::with_api_version(api_key, endpoint, deployment, api_version)?
                     .with_rate_limit(rps)
                     .with_default_options(default_opts);
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         "openrouter" => {
@@ -224,9 +262,12 @@ pub fn build_adapter(
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("OPENROUTER_MODEL").ok())
                 .unwrap_or_else(|| "openai/gpt-4o-mini".to_owned());
-            let adapter = OpenAiCompatibleAdapter::for_openrouter(api_key, model)?
+            let mut adapter = OpenAiCompatibleAdapter::for_openrouter(api_key, model)?
                 .with_rate_limit(rps)
                 .with_default_options(default_opts);
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         "vllm" => {
@@ -241,6 +282,9 @@ pub fn build_adapter(
             if !api_key.trim().is_empty() && api_key != "none" {
                 adapter = adapter.with_api_key(api_key);
             }
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         "mcp" => {
@@ -254,6 +298,9 @@ pub fn build_adapter(
             if let Some(tool) = model_override {
                 adapter = adapter.with_target_tool(tool);
             }
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         target if target.starts_with("mcp://") || target.starts_with("stdio://") => {
@@ -261,6 +308,9 @@ pub fn build_adapter(
                 .with_rate_limit(rps);
             if let Some(tool) = model_override {
                 adapter = adapter.with_target_tool(tool);
+            }
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
             }
             Ok(Arc::new(adapter))
         }
@@ -270,14 +320,50 @@ pub fn build_adapter(
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("OPENAI_MODEL").ok())
                 .unwrap_or_else(|| "gpt-4o-mini".to_owned());
-            let adapter = OpenAiAdapter::with_base_url(api_key, model, target)?
+            let mut adapter = OpenAiAdapter::with_base_url(api_key, model, target)?
                 .with_rate_limit(rps)
                 .with_default_options(default_opts);
+            if let Some(proxy) = proxy_url {
+                adapter = adapter.with_proxy(proxy)?;
+            }
             Ok(Arc::new(adapter))
         }
         _ => Err(RedTeamerError::InvalidConfig(format!(
             "unknown target '{target}', expected one of: openai, ollama, anthropic, gemini, azure, openrouter, vllm, mcp, mock, or an http(s):// base URL"
         ))),
+    }
+}
+
+/// Builds an adapter configured with an optional multi-IP proxy pool.
+///
+/// When `proxy_pool` is non-empty, creates underlying adapters for each proxy endpoint
+/// and wraps them in a [`RotatingAdapter`] that distributes traffic and performs
+/// automatic failover upon HTTP 429 or transport disruptions.
+pub fn build_adapter_with_pool(
+    target: &str,
+    model_override: Option<&str>,
+    base_url_override: Option<&str>,
+    rps: Option<u32>,
+    default_opts: GenerationOptions,
+    proxy_pool: Option<ProxyPool>,
+) -> Result<Arc<dyn TargetAdapter>> {
+    match proxy_pool {
+        Some(pool) if !pool.is_empty() => {
+            let mut adapters: Vec<Arc<dyn TargetAdapter>> = Vec::with_capacity(pool.len());
+            for url in pool.urls() {
+                let adapter = build_adapter_with_proxy(
+                    target,
+                    model_override,
+                    base_url_override,
+                    rps,
+                    default_opts.clone(),
+                    Some(&url),
+                )?;
+                adapters.push(adapter);
+            }
+            Ok(Arc::new(RotatingAdapter::new(adapters, pool)?))
+        }
+        _ => build_adapter(target, model_override, base_url_override, rps, default_opts),
     }
 }
 
@@ -373,5 +459,27 @@ mod tests {
         .unwrap();
         assert_eq!(mcp_stdio.info().name, "mcp-server");
         assert_eq!(mcp_stdio.info().model.as_deref(), Some("read_file"));
+    }
+
+    #[test]
+    fn build_adapter_with_pool_creates_rotating_adapter() {
+        let pool = ProxyPool::from_slice(
+            &["http://proxy1:8080", "http://proxy2:8080"],
+            redteamer_adapters::ProxyRotationStrategy::RoundRobin,
+        )
+        .unwrap();
+
+        let adapter = build_adapter_with_pool(
+            "mock",
+            Some("mock-model"),
+            None,
+            Some(10),
+            GenerationOptions::default(),
+            Some(pool),
+        )
+        .expect("pool adapter should build");
+
+        assert_eq!(adapter.info().name, "rotating-target-pool");
+        assert_eq!(adapter.info().model.as_deref(), Some("mock-model"));
     }
 }
