@@ -2,70 +2,258 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>llm-redteamer report — {{session_id}}</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; color: #1f2937; }
-    h1, h2 { color: #111827; }
-    .vulnerable { color: #b00020; font-weight: bold; }
-    .resistant { color: #1b5e20; }
-    .partial { color: #e65100; }
-    .meta { margin-bottom: 1.5rem; background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid #e5e7eb; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
-    th, td { border: 1px solid #d1d5db; padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
-    th { background: #f3f4f6; }
-    pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --th-bg: #f1f5f9;
+      --hover-bg: #f8fafc;
+      --code-bg: #f1f5f9;
+      --crit-color: #dc2626;
+      --high-color: #ea580c;
+      --med-color: #d97706;
+      --low-color: #2563eb;
+      --res-color: #16a34a;
+    }
+    [data-theme="dark"] {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --th-bg: #334155;
+      --hover-bg: #1e293b;
+      --code-bg: #0f172a;
+      --crit-color: #ef4444;
+      --high-color: #f97316;
+      --med-color: #f59e0b;
+      --low-color: #3b82f6;
+      --res-color: #22c55e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0f172a;
+        --card-bg: #1e293b;
+        --text: #f8fafc;
+        --text-muted: #94a3b8;
+        --border: #334155;
+        --th-bg: #334155;
+        --hover-bg: #1e293b;
+        --code-bg: #0f172a;
+        --crit-color: #ef4444;
+        --high-color: #f97316;
+        --med-color: #f59e0b;
+        --low-color: #3b82f6;
+        --res-color: #22c55e;
+      }
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 2rem;
+      background: var(--bg);
+      color: var(--text);
+      transition: background-color 0.2s ease, color 0.2s ease;
+      line-height: 1.5;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 2px solid var(--border);
+    }
+    h1 { margin: 0; font-size: 1.75rem; }
+    h2 { margin-top: 2rem; margin-bottom: 1rem; font-size: 1.3rem; }
+    button.theme-btn {
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.9rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    button.theme-btn:hover { background: var(--hover-bg); }
+    .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .chart-container { display: flex; align-items: center; justify-content: center; flex-direction: column; }
+    .legend { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; font-size: 0.85rem; }
+    .legend-item { display: flex; align-items: center; gap: 0.35rem; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.9rem; }
+    th, td { border: 1px solid var(--border); padding: 0.6rem 0.8rem; text-align: left; vertical-align: top; }
+    th { background: var(--th-bg); user-select: none; }
+    th.sortable { cursor: pointer; }
+    th.sortable:hover { background: var(--border); }
+    tr:hover { background: var(--hover-bg); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--code-bg); padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.85em; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; font-size: 0.82rem; background: var(--code-bg); padding: 0.4rem; border-radius: 4px; }
+    .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: bold; font-size: 0.75rem; text-transform: uppercase; }
+    .badge-critical { background: #fee2e2; color: #991b1b; }
+    .badge-high { background: #ffedd5; color: #9a3412; }
+    .badge-medium { background: #fef3c7; color: #92400e; }
+    .badge-low { background: #dbeafe; color: #1e40af; }
+    .badge-resistant { background: #dcfce7; color: #166534; }
+    details { margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    summary { font-size: 1.15rem; font-weight: 600; cursor: pointer; outline: none; }
+    summary:hover { color: var(--crit-color); }
+    .vulnerable { color: var(--crit-color); font-weight: bold; }
+    .resistant { color: var(--res-color); font-weight: bold; }
+    .partial { color: var(--med-color); font-weight: bold; }
   </style>
 </head>
 <body>
-  <h1>LLM Red-Teaming Security Report</h1>
-  <div class="meta">
-    <p><strong>Session:</strong> <code>{{session_id}}</code> | <strong>Target:</strong> <code>{{target_name}}</code> (model: <code>{{target_model}}</code>) | <strong>Generated:</strong> {{generated_at}}</p>
-    <p><strong>Records Evaluated:</strong> {{summary.total_records}} | <strong>Vulnerable Findings:</strong> {{summary.total_findings}} | <strong>Highest CVSS v4.0:</strong> {{summary.highest_score}} (Critical: {{summary.critical}}, High: {{summary.high}}, Medium: {{summary.medium}}, Low: {{summary.low}})</p>
-    <p><strong>Tokens:</strong> {{summary.total_prompt_tokens}} prompt / {{summary.total_completion_tokens}} completion | <strong>Latency:</strong> p50 {{summary.latency_p50_ms}} ms / p95 {{summary.latency_p95_ms}} ms</p>
+  <div class="header">
+    <div>
+      <h1>LLM Red-Teaming Security Report</h1>
+      <small style="color: var(--text-muted)">Generated {{generated_at}}</small>
+    </div>
+    <button class="theme-btn" onclick="toggleTheme()" id="themeToggleBtn">🌓 Theme</button>
   </div>
 
-  <h2>Per-Probe Attack Success Rate (ASR)</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Probe</th><th>OWASP Category</th><th>Total</th><th>Vulnerable</th><th>Partial</th><th>Resistant</th><th>Errors</th><th>ASR</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{#each probe_summaries}}
-      <tr>
-        <td><code>{{probe_name}}</code></td>
-        <td>{{category}}</td>
-        <td>{{total}}</td>
-        <td class="vulnerable">{{vulnerable}}</td>
-        <td class="partial">{{partial}}</td>
-        <td class="resistant">{{resistant}}</td>
-        <td>{{errors}}</td>
-        <td><strong>{{asr_percent}}</strong></td>
-      </tr>
-      {{/each}}
-    </tbody>
-  </table>
+  <div class="grid">
+    <div class="card">
+      <h3 style="margin-top:0">Scan Campaign Overview</h3>
+      <p><strong>Session ID:</strong> <code>{{session_id}}</code></p>
+      <p><strong>Target:</strong> <code>{{target_name}}</code> (model: <code>{{target_model}}</code>)</p>
+      <p><strong>Evaluations:</strong> {{summary.total_records}} requests | <strong>Vulnerabilities:</strong> <span class="vulnerable">{{summary.total_findings}}</span> | <strong>Highest CVSS:</strong> {{summary.highest_score}}</p>
+      <p><strong>Tokens:</strong> {{summary.total_prompt_tokens}} prompt / {{summary.total_completion_tokens}} completion</p>
+      <p><strong>Latency:</strong> p50 {{summary.latency_p50_ms}} ms / p95 {{summary.latency_p95_ms}} ms</p>
+    </div>
 
-  <h2>Confirmed Findings</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Title</th><th>CVSS v4.0</th><th>Mutation</th><th>Detector</th><th>Prompt</th><th>Response</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{#each findings}}
-      <tr>
-        <td><strong>{{title}}</strong><br/><small>{{owasp_summary}}</small></td>
-        <td class="{{verdict}}">{{cvss_score}} ({{cvss_band}})<br/><small><code>{{cvss_vector}}</code></small></td>
-        <td><code>{{mutation_type}}</code></td>
-        <td><code>{{detector_name}}</code></td>
-        <td><pre>{{prompt}}</pre></td>
-        <td><pre>{{response}}</pre></td>
-      </tr>
-      {{/each}}
-    </tbody>
-  </table>
+    <div class="card chart-container">
+      <h3 style="margin-top:0">Severity Breakdown</h3>
+      <svg width="140" height="140" viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="40" fill="transparent" stroke="var(--border)" stroke-width="14" />
+        {{#each donut_segments}}
+        <circle cx="50" cy="50" r="40" fill="transparent" stroke="{{color}}" stroke-width="14"
+                stroke-dasharray="{{dasharray}}" stroke-dashoffset="{{dashoffset}}"
+                transform="rotate(-90 50 50)" />
+        {{/each}}
+        <text x="50" y="47" text-anchor="middle" font-size="13" font-weight="bold" fill="var(--text)">{{summary.total_findings}}</text>
+        <text x="50" y="61" text-anchor="middle" font-size="6.5" fill="var(--text-muted)">Findings</text>
+      </svg>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-dot" style="background:#dc2626"></span> Crit: {{summary.critical}}</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ea580c"></span> High: {{summary.high}}</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#d97706"></span> Med: {{summary.medium}}</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#2563eb"></span> Low: {{summary.low}}</div>
+      </div>
+    </div>
+  </div>
+
+  <details open>
+    <summary>Per-Probe Attack Success Rate (ASR)</summary>
+    <table id="asr-table">
+      <thead>
+        <tr>
+          <th class="sortable" onclick="sortTable('asr-table', 0, false)">Probe ↕</th>
+          <th class="sortable" onclick="sortTable('asr-table', 1, false)">OWASP Category ↕</th>
+          <th class="sortable" onclick="sortTable('asr-table', 2, true)">Total ↕</th>
+          <th class="sortable" onclick="sortTable('asr-table', 3, true)">Vulnerable ↕</th>
+          <th class="sortable" onclick="sortTable('asr-table', 4, true)">Partial ↕</th>
+          <th class="sortable" onclick="sortTable('asr-table', 5, true)">Resistant ↕</th>
+          <th class="sortable" onclick="sortTable('asr-table', 6, true)">Errors ↕</th>
+          <th class="sortable" onclick="sortTable('asr-table', 7, true)">ASR ↕</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each probe_summaries}}
+        <tr>
+          <td><code>{{probe_name}}</code></td>
+          <td>{{category}}</td>
+          <td>{{total}}</td>
+          <td class="vulnerable">{{vulnerable}}</td>
+          <td class="partial">{{partial}}</td>
+          <td class="resistant">{{resistant}}</td>
+          <td>{{errors}}</td>
+          <td><strong>{{asr_percent}}</strong></td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </details>
+
+  <details open>
+    <summary>Confirmed Findings ({{summary.total_findings}})</summary>
+    <table id="findings-table">
+      <thead>
+        <tr>
+          <th class="sortable" onclick="sortTable('findings-table', 0, false)">Title ↕</th>
+          <th class="sortable" onclick="sortTable('findings-table', 1, true)">CVSS v4.0 ↕</th>
+          <th class="sortable" onclick="sortTable('findings-table', 2, false)">Mutation ↕</th>
+          <th class="sortable" onclick="sortTable('findings-table', 3, false)">Detector ↕</th>
+          <th>Prompt</th>
+          <th>Response</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each findings}}
+        <tr>
+          <td><strong>{{title}}</strong><br/><small style="color:var(--text-muted)">{{owasp_summary}}</small></td>
+          <td>
+            <strong>{{cvss_score}}</strong> ({{cvss_band}})<br/>
+            <small><code>{{cvss_vector}}</code></small>
+          </td>
+          <td><code>{{mutation_type}}</code></td>
+          <td><code>{{detector_name}}</code></td>
+          <td><pre>{{prompt}}</pre></td>
+          <td><pre>{{response}}</pre></td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  </details>
+
+  <script>
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('redteamer-theme', next);
+    }
+    (function() {
+      const saved = localStorage.getItem('redteamer-theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    })();
+
+    function sortTable(tableId, colIndex, isNum) {
+      const table = document.getElementById(tableId);
+      const tbody = table.tBodies[0];
+      const rows = Array.from(tbody.rows);
+      const isAsc = table.dataset.sortCol == colIndex && table.dataset.sortDir === 'asc' ? false : true;
+      table.dataset.sortCol = colIndex;
+      table.dataset.sortDir = isAsc ? 'asc' : 'desc';
+
+      rows.sort((a, b) => {
+        const aVal = a.cells[colIndex].innerText.trim();
+        const bVal = b.cells[colIndex].innerText.trim();
+        if (isNum) {
+          const aNum = parseFloat(aVal.replace(/[^0-9.-]/g, '')) || 0;
+          const bNum = parseFloat(bVal.replace(/[^0-9.-]/g, '')) || 0;
+          return isAsc ? aNum - bNum : bNum - aNum;
+        }
+        return isAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      });
+      rows.forEach(r => tbody.appendChild(r));
+    }
+  </script>
 </body>
 </html>

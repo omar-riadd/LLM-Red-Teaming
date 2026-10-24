@@ -30,11 +30,49 @@ impl HtmlExporter {
     }
 
     fn render_payload(&self, ctx: &ReportContext) -> serde_json::Value {
+        let total_findings = ctx.findings.len();
+        let circumference = 251.3274_f64; // 2 * PI * 40
+        let mut donut_segments = Vec::new();
+
+        if total_findings == 0 {
+            donut_segments.push(json!({
+                "label": "Resistant",
+                "color": "#10b981",
+                "count": 0,
+                "dasharray": format!("{circumference:.2} 0"),
+                "dashoffset": 0.0,
+            }));
+        } else {
+            let n = total_findings as f64;
+            let mut offset = 0.0_f64;
+            let categories = [
+                ("Critical", "#dc2626", ctx.severity_breakdown.critical),
+                ("High", "#ea580c", ctx.severity_breakdown.high),
+                ("Medium", "#d97706", ctx.severity_breakdown.medium),
+                ("Low", "#2563eb", ctx.severity_breakdown.low),
+            ];
+
+            for (label, color, count) in categories {
+                if count > 0 {
+                    let len = (count as f64 / n) * circumference;
+                    donut_segments.push(json!({
+                        "label": label,
+                        "color": color,
+                        "count": count,
+                        "dasharray": format!("{:.2} {:.2}", len, circumference - len),
+                        "dashoffset": -offset,
+                    }));
+                    offset += len;
+                }
+            }
+        }
+
         json!({
             "session_id": ctx.session_id.to_string(),
             "target_name": ctx.target_name,
             "target_model": ctx.target_model.as_deref().unwrap_or("default"),
             "generated_at": chrono::Utc::now().to_rfc2822(),
+            "donut_segments": donut_segments,
             "summary": {
                 "total_records": ctx.records.len(),
                 "total_findings": ctx.findings.len(),

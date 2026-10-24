@@ -112,8 +112,8 @@
 - [x] **15.3** Added mock HTTP server integration test in `crates/redteamer-detectors/tests/judge_mock.rs` validating `LlmJudgeDetector` accuracy, refusal detection, markdown/embedded JSON parsing, and malformed JSON error handling.
 
 ### Phase 16 — CLI Module Split & Interactive HTML Report (GA6, GA10)
-- [ ] **16.1** Split `main.rs` into `cmd/{scan,diff,list,health}.rs`
-- [ ] **16.2** HTML report: dark mode + sortable table + SVG chart + collapsible sections
+- [x] **16.1** Split `crates/redteamer-cli/src/main.rs` into `adapter_builder.rs` and modular subcommands `cmd/{mod, scan, diff, list, health}.rs`; reduced `main.rs` to ~80 lines; added `-o` short flag and dedicated `health` subcommand.
+- [x] **16.2** Upgraded `report.html.hbs` with dark mode toggle, client-side persistence, SVG severity doughnut chart, sortable findings and ASR tables, and collapsible `<details>` sections; added `crates/redteamer-reporters/tests/html_snapshot.rs`.
 
 ### Phase 17 — Stateful PAIR Attacker Loop (GA7)
 - [ ] **17.1** Replace stateless Crescendo with scored PAIR tree search (N=3 branches, judge scoring)
