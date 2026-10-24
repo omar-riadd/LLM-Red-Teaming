@@ -24,8 +24,9 @@
 - **Workspace Path**: `/home/omar/Projects/LLM-Red-Teaming`
 - **GitHub Repository**: `https://github.com/omar-riadd/LLM-Red-Teaming`
 - **Branch**: `main`
-- **Latest Commit**: `1527cf1` — `feat(adapters): implement Phase 23 Model Context Protocol (MCP) server attacks (FG4)`
+- **Latest Commit**: `6e7832a` — `feat(reporters): implement Phase 24 automated DPO / RLHF dataset exporter (FG5)`
 - **Previous Significant Commits**:
+  - `1527cf1` — `feat(adapters): implement Phase 23 Model Context Protocol (MCP) server attacks (FG4)`
   - `490f338` — `feat(detectors): expand default semantic reference corpus to 52 calibrated phrases`
   - `c29e5d1` — `feat(azure): send Ocp-Apim-Subscription-Key header for native APIM gateway support`
   - `29e7b84` — `fix(azure): support APIM enterprise routing, pre-specified api-version, and Entra ID bearer auth`
