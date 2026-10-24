@@ -1,8 +1,8 @@
-# improve.md — v0.3 Improvement Plan for `llm-redteamer`
+# improve.md — Evolution & Future Roadmap for `llm-redteamer`
 
-> Status: **ALL UNCERTAINTIES VERIFIED — Awaiting approval to execute.**
-> Baseline: commit `719af8e` on `main`. 44 tests pass, clippy `-D warnings` clean, `cargo deny` clean.
-> Session rules active: read files in full (100% of lines), update `project-progress.md` after each task, verify with real commands, ask for confirmation after each phase.
+> Status: **PHASES 0–22 COMPLETED & VERIFIED (v0.3, v0.4, v0.4.1 Hardened).**
+> Current Baseline: commit `9ecbdb6` on `main`. 88 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean.
+> Session rules active: read files in full (100% of lines), update `project-progress.md` after each task, verify with real commands, maintain offline builds.
 
 ---
 
@@ -231,21 +231,32 @@ Global workflow for every phase:
 
 ---
 
-## 3. Dependency Graph
+## 3. Completed Evolution (Phases 12–22)
 
-```mermaid
-flowchart TD
-  P6["Phase 6: Critical Bug Fixes (G15/G16), Global Concurrency (G1), Error Reasons (G2), Telemetry (G3/G4/G18)"] --> P7["Phase 7: Verdict Refusal Fix (G8), Response Normalizer (G7), Labeled Eval Set, Semantic CLI (G9)"]
-  P6 --> P8["Phase 8: Protocol Tool Calling (G10), Model/Refusal Updates (G17), TcpListener HTTP Tests (G11)"]
-  P7 --> P9["Phase 9: Live JSONL Streaming & Checkpoint Resume (G12)"]
-  P8 --> P10["Phase 10: Adaptive Multi-Turn Attacker Loop (G13)"]
-  P9 --> P11["Phase 11: CLI Binary Integration Tests, Finding-Level Diff & v0.3.0 Release (G14)"]
-  P10 --> P11
-```
+All 22 implementation phases are 100% complete and verified:
+- **v0.3.0 (Phases 6–11)**: Global concurrency semaphore, typed token usage, response de-obfuscation, labeled detection eval suite (70 cases), protocol tool-calling, HTTP mock tests, live streaming JSONL & resume, Crescendo attacker loop, finding-level diff.
+- **v0.4.0 (Phases 12–18)**: CycloneDX 1.5 JSON SBOM, 312 unique seeds across all 11 OWASP templates (`templates/llm02_rag_injection.yaml` added), bundled `all-MiniLM-L6-v2` semantic model, property-based tests (`proptest`), AFL/libFuzzer targets, CLI module split, interactive HTML dashboard with dark mode and SVG chart, stateful PAIR tree search loop, multi-stage Dockerfile, and GitHub Actions release automation.
+- **v0.4.1 (Phases 19–22)**:
+  - Phase 19: All 11 templates participating in adaptive attacks; precomputed reference embeddings for 30x evaluation speedup.
+  - Phase 20: Session-unique ephemeral canaries; dynamic CVSS v4.0 calibrator with Shannon byte entropy ($H \ge 4.5$) and conversational turn depth ($T \ge 2 \to \text{AC:H}$).
+  - Phase 21: Enterprise target adapters (`GeminiAdapter`, `AzureOpenAiAdapter`, `OpenAiCompatibleAdapter` for vLLM & OpenRouter).
+  - Phase 22: Cloud AI safety filter refusal mapping (Azure `ResponsibleAIPolicyViolation`, Gemini `SAFETY`/`BLOCKLIST`, OpenAI `content_filter`, Anthropic `safety`), enterprise CA bundle TLS loading (`REDTEAMER_CA_BUNDLE` / `SSL_CERT_FILE`), lab insecure TLS (`REDTEAMER_INSECURE_TLS=1`), dual APIM auth headers, HTTP 529 retryability, and embedded templates verification test.
 
 ---
 
-## 4. Verification Commands (Run After Every Phase)
+## 4. Future Roadmap & Enhancement Gaps (v0.5 Proposals)
+
+| ID | Future Opportunity / Gap | Value & Impact |
+|---|---|---|
+| **FG1** | **Executive Document Exporters (DOCX / PDF)** | Provide professional styled penetration testing deliverables for CISO/executive review alongside developer-oriented HTML and Markdown. |
+| **FG2** | **Distributed Worker Pool / Multi-IP Rotation** | Coordinate multiple agent containers or IP proxy rotation pools for massive enterprise model audits without triggering cloud gateway IP rate limits. |
+| **FG3** | **Real-Time Streaming Early Termination** | Inspect streaming tokens via Server-Sent Events (SSE) and terminate jailbroken responses immediately upon canary extraction, conserving API tokens. |
+| **FG4** | **Model Context Protocol (MCP) Server Attacks** | Expand `redteamer-adapters` to red-team tools and agents hosted via standard Model Context Protocol servers. |
+| **FG5** | **Automated DPO / RLHF Dataset Exporter** | Export verified vulnerable and resistant prompt-response pairs directly into ShareGPT / Alpaca JSON format for downstream safety model fine-tuning. |
+
+---
+
+## 5. Verification Commands
 
 ```bash
 cargo fmt --all -- --check
@@ -254,3 +265,4 @@ cargo test --workspace --offline
 cargo deny --offline check
 cargo run --offline -p redteamer-cli -- scan --target mock --format markdown
 ```
+

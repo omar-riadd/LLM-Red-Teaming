@@ -1,17 +1,21 @@
-# SESSION_HANDOFF.md — Complete Project Knowledge & v0.3 Execution Guide
+# SESSION_HANDOFF.md — Complete Project Knowledge & Execution Guide
 
-> **For the next session agent:** Read this file, `improve.md`, and `project-progress.md` in full (100% of lines, never skip anything) before taking any action.
+> **For the incoming agent in the new session:** Read this file, `project-progress.md`, and `improve.md` in full (100% of lines, never skip or guess) before taking any action.
 
 ---
 
 ## 1. Mandatory Session & Global Rules (MUST FOLLOW AT ALL TIMES)
 
-1. **Read files in full**: If you have to read any file, read **100% of its lines** (use `StartLine`/`EndLine` chunks only if >800 lines, until every line is read). Never skim or guess.
-2. **Maintain `project-progress.md`**: After finishing each task/phase, update `/home/omar/Projects/LLM-Red-Teaming/project-progress.md` so we always know where we are.
-3. **Always verify, never assume**: Run real build/test/lint commands (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --offline -- -D warnings`, `cargo test --workspace --offline`, `cargo deny --offline check`) and report real outputs. Never invent APIs, flags, or structs. Label claims `"seen in <file>"` vs `"assumed"`.
-4. **Confirmation after each task/phase**: Stop after completing each phase, present a concise summary ending with **`What changed` / `How to test` / `What I'm unsure about`**, and wait for user confirmation before starting the next phase.
-5. **Ask before destructive/external actions**: Ask before deleting files, adding external dependencies, or running destructive git commands.
-6. **Offline workspace constraint**: The Rust workspace is built and tested offline (`--offline`) against a pinned `Cargo.lock`. Do **not** add new external crates that require network fetches unless explicitly approved.
+1. **Read files in full**: If you need to read any file, read **100% of its lines** (using `StartLine`/`EndLine` chunks only if >800 lines, until every line is read). Never skim or assume contents.
+2. **Maintain `project-progress.md`**: After finishing each task/phase, update `/home/omar/Projects/LLM-Red-Teaming/project-progress.md` to record real state.
+3. **Always verify before saying "done"**: Run real build, test, and lint commands (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --offline -- -D warnings`, `cargo test --workspace --offline`, `cargo deny --offline check`) and report real results. Never invent APIs, flags, or library functions.
+4. **Touch 3+ files / add dependencies / destructive commands**: Write a plan first and wait for approval. Small verified edits can be executed directly.
+5. **Ask before destructive/external actions**: Ask before deleting files, adding external crates, or running destructive git operations (`git reset --hard`, force push, `rm -rf`).
+6. **Offline workspace constraint**: The Rust workspace is built and tested offline (`--offline`) against pinned dependencies in `Cargo.lock`. Do not add new external crates requiring network access unless explicitly approved.
+7. **Sandbox & Git Operations**:
+   - The command sandbox has full read/write access to the workspace, but `.git/` is write-protected in standard sandbox mode.
+   - Run preparation, cargo builds, tests, clippy, and formatting with `BypassSandbox: false`.
+   - Git operations that write to `.git/` (`git add`, `git commit`, `git tag`) must use `BypassSandbox: true` keeping identical `toolAction` and `toolSummary`.
 
 ---
 
@@ -20,174 +24,144 @@
 - **Workspace Path**: `/home/omar/Projects/LLM-Red-Teaming`
 - **GitHub Repository**: `https://github.com/omar-riadd/LLM-Red-Teaming`
 - **Branch**: `main`
-- **Latest Commit**: `719af8e` — `feat: complete v2 redesign (OWASP LLM Top 10 2025, chat adapters, detectors, 6 exporters, CLI diff)`
-- **Previous Commit**: `663e2e9` — `chore: Phase 7.5 checkpoint and HTML template cleanup`
-- **Untracked Workspace Files**:
-  - `SESSION_HANDOFF.md` (this handoff document)
-  - `improve.md` (the verified v0.3 improvement plan covering Phases 6–11 and gaps `G1`–`G18`)
-  - `project-progress.md` (live task tracker across all phases)
-  - `docs/history/` (`HANDOFF.md`, `project_goal.md`, `LLM-Red-Teaming-Project-History.md` — moved out of repo root per user request; `opencode_session.txt` was deleted per user request)
+- **Latest Commit**: `9ecbdb6` — `feat(adapters,probes): cloud safety refusal mapping, ca bundle tls support, and embedded template verification`
+- **Previous Significant Commits**:
+  - `c29e5d1` — `feat(azure): send Ocp-Apim-Subscription-Key header for native APIM gateway support`
+  - `29e7b84` — `fix(azure): support APIM enterprise routing, pre-specified api-version, and Entra ID bearer auth`
+  - `44b5a64` — `feat: implement Phase 20 ephemeral canaries and dynamic CVSS calibration`
+  - `347b2c9` — `feat: implement Phase 19 template adaptive coverage and semantic embedding optimization`
+  - `20833a6` — `feat: complete v0.4 (Phases 12-18) enterprise red-teaming release`
+  - `69a8e78` — `chore: release v0.3.0 and finalize all Phase 6-11 improvements`
 - **Current Verification Baseline**:
-  - `cargo test --workspace --offline` → **44 passed; 0 failed; 0 ignored** (40 unit/integration tests + 4 doc-tests).
+  - `cargo test --workspace --offline` → **88 passed; 0 failed; 0 ignored** across all 8 crates, 7 integration test suites, and 4 doc-tests.
   - `cargo clippy --workspace --all-targets --offline -- -D warnings` → **0 warnings, 0 errors**.
+  - `cargo fmt --all -- --check` → **100% clean**.
   - `cargo deny --offline check` → **advisories ok, bans ok, licenses ok, sources ok**.
-- **Sandbox Note for Git Commands**:
-  - `.git/` is read-only inside the standard command sandbox (`Unable to create '.../.git/index.lock': Read-only file system`). All `cargo` build/test/clippy/fmt/run commands work inside the standard sandbox (`BypassSandbox: false`), while `git add` / `git commit` require `BypassSandbox: true` (always try sandboxed first per system rules, then retry with `BypassSandbox: true` using the identical `toolAction` and `toolSummary`).
+- **Working Tree**: Clean (`git status` reports nothing to commit, working tree clean).
 
 ---
 
-## 3. Workspace Architecture & Crate Map (8 Crates + 10 YAML Templates)
+## 3. Workspace Architecture & Crate Map (8 Crates + 11 Embedded OWASP Templates)
 
-### Crate Dependency Hierarchy
-1. **`crates/redteamer-core`** — Core traits, data structures, CVSS v4.0 calculator, and error types (`#![forbid(unsafe_code)]`).
-   - `src/error.rs`: `RedTeamerError` (`Adapter`, `Probe`, `Detector`, `Report`, `Unsupported`, `InvalidConfig`, `Serialization`, `Other`) + `RedTeamerError::is_retryable(&self) -> bool` (checks HTTP 408/429/500/502/503/504, timeout, connection reset/refused, rate limit).
-   - `src/traits/adapter.rs`: `Role` (`System`, `User`, `Assistant`), `ChatMessage`, `GenerationOptions` (`system_prompt`, `temperature`, `max_tokens`, `seed`), `AdapterInfo`, `AdapterResponse` (`text`, `completed`, `metadata: serde_json::Value`), and `TargetAdapter` trait (`send_chat`, `send`, `send_conversation`, `health_check`, `enrich_record`).
-   - `src/traits/detector.rs`: `DetectContext` (owned `prompt`, `response`, `canary`, `category`, `probe_goal`) and `Detector` trait (`name`, `description`, `detect(&self, ctx: &DetectContext)`).
-   - `src/traits/probe.rs`: `Probe` trait (`name`, `description`, `category`, `run(session_id, target, concurrency, detectors)`).
-   - `src/traits/reporter.rs`: `ReportFormat` (`Json`, `Jsonl`, `Markdown`, `Html`, `Sarif`, `Csv`), `ReportContext` (`session_id`, `target_name`, `target_model`, `generated_at`, `severity_breakdown`, `probe_summaries`, `findings`, `records`), and `ReportExporter` trait.
-   - `src/types.rs`: `OwaspCategory` (`LLM01`–`LLM10`), `Severity` (`None`, `Low`, `Medium`, `High`, `Critical` + `Display`), `CvssVector` (full CVSS v4.0 macrovector eq1–eq6 lookup table), `Verdict` (`Resistant`, `Partial`, `Vulnerable`, `Error`), `Finding`, `SeverityBreakdown`, `ProbeSummary`, `MutationType` (8 variants), `AttackRecord`, `DetectorPolarity` (`Vulnerable`, `Refusal`), and `DetectionOutcome`.
+```
+LLM-Red-Teaming/
+├── crates/
+│   ├── redteamer-core/          # Core traits, error model (retryable), CVSS v4.0 engine
+│   ├── redteamer-adapters/      # 6 LLM target adapters, client builder, CA bundle TLS loader
+│   ├── redteamer-payload/       # 14 mutators, template schema, ephemeral canary generator
+│   ├── redteamer-detectors/     # Regex, canary, Aho-Corasick, LLM judge, ONNX semantic detector
+│   ├── redteamer-probes/        # Unified TemplateProbe, 11 embedded OWASP templates, PAIR loop
+│   ├── redteamer-orchestrator/  # Scan engine, global semaphore, streaming JSONL, resume
+│   ├── redteamer-reporters/     # Dynamic CVSS v4.0 calibrator (entropy+depth), 6 exporters
+│   └── redteamer-cli/           # Modular CLI (scan, diff, list, health), integration tests
+├── templates/                   # 11 OWASP Top 10 for LLM (2025) YAML attack templates
+├── models/all-MiniLM-L6-v2/     # Vendored ONNX tokenizer & download helper for offline semantic eval
+├── sbom/                        # CycloneDX 1.5 JSON Software Bill of Materials (233 components)
+├── fuzz/                        # AFL / libFuzzer targets (YAML loader & mutation engine)
+└── .github/workflows/           # CI workflow (clippy, test, fmt, deny, sbom) & Release workflow
+```
 
-2. **`crates/redteamer-adapters`** — HTTP LLM backend implementations + token-bucket rate limiter.
-   - `src/lib.rs`: `RateLimiter`, `AdapterConfig` JSON factory (`openai`, `ollama`, `anthropic`), re-exports.
-   - `src/openai.rs`: `OpenAiAdapter` (`/v1/chat/completions`, Bearer auth, `with_base_url(api_key, model, base_url)`, `with_rate_limit`, `with_default_options`). Stores `Usage { prompt_tokens, completion_tokens }` in `AdapterResponse.metadata`.
-   - `src/anthropic.rs`: `AnthropicAdapter` (`/v1/messages`, `x-api-key` + `anthropic-version: 2023-06-01`, top-level `system` prompt, `DEFAULT_MAX_TOKENS = 4096`, `with_base_url(api_key, model, base_url)`). Stores `{"stop_reason": ..., "usage": {"input_tokens": ..., "output_tokens": ...}}` in `AdapterResponse.metadata`.
-   - `src/ollama.rs`: `OllamaAdapter` (`/api/chat` with `stream: false`, `options: { temperature, num_predict, seed }`, `/api/tags` `health_check()`). Stores `{"prompt_eval_count": ..., "eval_count": ...}` in `AdapterResponse.metadata`.
+### Detailed Crate Functionality
 
-3. **`crates/redteamer-payload`** — YAML template parser and payload mutation engine.
-   - `src/mutation.rs`: `Mutation` enum (`Identity`, `Base64`, `Rot13`, `Hex`, `Reverse`, `WhitespaceNoise`, `CaseRandomize`, `RoleplayPrefix`, `SystemOverridePrefix`, `BenignSuffix`, `Leetspeak`, `Homoglyph`, `ZeroWidth`, `JsonTaskWrap`), `GeneratedPayload { text, mutation_type }`, `MutationPipeline::iter_tagged_with_identity` (deduplicates `Identity`).
-   - `src/template.rs`: `ProbeScope`, `InlineDetectorRule` (`StringMatch`, `RegexSet`, `RefusalMatch`, `CanaryMatch`, `MinLength`), `ProbeTemplate` (`name`, `description`, `owasp_categories`, `scope`, `system_prompt`, `canary_token`, `seeds`, `conversations`, `mutations`, `rules`, `detector_hints`, `effective_system_prompt()`, `payloads_tagged()`).
+1. **`crates/redteamer-core`**:
+   - `traits/adapter.rs`: `Role`, `ChatMessage`, `GenerationOptions` (system prompt, tools, temperature, max_tokens, seed), `AdapterInfo`, `AdapterResponse` (`text`, `tool_calls`, `completed`, `metadata`), and `TargetAdapter` trait.
+   - `error.rs`: `RedTeamerError` and `RedTeamerError::is_retryable()`, which recognizes transient failures: HTTP 408, 429, 500, 502, 503, 504, 529, timeouts, connection resets, and `"overloaded"`.
+   - `types.rs`: `OwaspCategory` (`LLM01`–`LLM10`), `Severity`, `CvssVector` (full CVSS v4.0 macrovector lookup table), `Verdict` (`Resistant`, `Partial`, `Vulnerable`, `Error`), `Finding`, `SeverityBreakdown`, `ProbeSummary`, `MutationType` (14 variants), `AttackRecord`, `DetectorPolarity`, and `DetectionOutcome`.
 
-4. **`crates/redteamer-detectors`** — Response evaluation engine.
-   - `src/lib.rs`: `CanaryDetector`, `LengthDetector`, `DetectorInfo`, `builtin_detector_descriptions()`.
-   - `src/string_match.rs`: `StringMatchDetector` (Aho-Corasick / `memchr::memmem`, case-sensitive/insensitive, configurable `DetectorPolarity`).
-   - `src/regex_set.rs`: `RegexSetDetector` (compiled `regex::RegexSet`, configurable `DetectorPolarity`).
-   - `src/llm_judge.rs`: `LlmJudgeDetector` (calls secondary `Arc<dyn TargetAdapter>`, strips markdown code fences, parses `JudgeVerdict { vulnerable, confidence, rationale }`).
-   - `src/semantic.rs`: `SemanticDetector` (loads ONNX model via `ort = "=2.0.0-rc.13"` `Mutex<Session>` + HuggingFace `tokenizers::Tokenizer`, attention-mask mean pooling, L2 normalization, cosine similarity against reference phrases).
-   - `src/pipeline.rs`: `DetectorPipeline` (runs detectors sequentially over `DetectContext`).
+2. **`crates/redteamer-adapters`**:
+   - `lib.rs`: Exposes `build_http_client` and `build_http_client_with_timeout`. Bypasses proxy for loopback targets (`localhost`, `127.0.0.1`, `[::1]`). Reads custom PEM CA certificates from `REDTEAMER_CA_BUNDLE` or `SSL_CERT_FILE`. Enables `danger_accept_invalid_certs(true)` when `REDTEAMER_INSECURE_TLS=1`. Contains `RateLimiter` and `create_adapter` factory.
+   - `azure.rs` (`AzureOpenAiAdapter`): Deployment-based routing (`build_azure_url`), dual authentication headers (`api-key` and `Ocp-Apim-Subscription-Key`), Entra ID JWT Bearer token auto-detection, and safety refusal interception for HTTP 400 (`ResponsibleAIPolicyViolation`, `content_filter`) and HTTP 200 (`finish_reason == "content_filter"`).
+   - `gemini.rs` (`GeminiAdapter`): REST API (v1beta `generateContent`), `systemInstruction`, usage metadata extraction, safety refusal interception on HTTP 400/403 and HTTP 200 (`finishReason == "SAFETY" | "BLOCKLIST" | "PROHIBITED_CONTENT"` or `promptFeedback.blockReason`).
+   - `openai.rs` (`OpenAiAdapter`) & `openai_compatible.rs` (`OpenAiCompatibleAdapter`): Handles `/v1/chat/completions`, function tool-calling, specialized presets for OpenRouter (`HTTP-Referer`, `X-Title`) and vLLM, and intercepts `content_filter` / `content_policy_violation`.
+   - `anthropic.rs` (`AnthropicAdapter`): Messages API (`/v1/messages`), top-level system prompt, `claude-sonnet-4-5` default, `tool_use` blocks, and HTTP 400 safety block interception.
+   - `ollama.rs` (`OllamaAdapter`): Local inference adapter, 300s timeout, `/api/chat` with tool calls, `/api/tags` health check.
 
-5. **`crates/redteamer-probes`** — Unified template-driven probe runner.
-   - `src/lib.rs`: Embeds all 10 `templates/llm01..10_*.yaml` files via `include_str!`. Implements `TemplateProbe`, `evaluate_verdict`, `send_chat_with_retry` (retries up to 2 times with 150ms/300ms backoff when `err.is_retryable()`), single-turn + multi-turn (`User -> Assistant -> User`) execution, `all_probes()`, `probes_by_name()`, and `probes_from_dir()`.
+3. **`crates/redteamer-payload`**:
+   - `mutation.rs`: 14 mutation types: `Identity`, `Base64`, `Rot13`, `Hex`, `Reverse`, `WhitespaceNoise`, `CaseRandomize`, `RoleplayPrefix`, `SystemOverridePrefix`, `BenignSuffix`, `Leetspeak`, `Homoglyph`, `ZeroWidth`, and `JsonTaskWrap`.
+   - `template.rs`: `ProbeTemplate` schema. Implements `generate_ephemeral_canary(session_id)` generating format `CANARY-{session_prefix}-{probe_hash}-{uuid}`, and `effective_system_prompt_with_canary(...)`.
 
-6. **`crates/redteamer-orchestrator`** — Concurrent campaign runner.
-   - `src/scan.rs`: `ScanConfig`, `ScanReport`, `ScanBuilder`. Spawns probes in a `tokio::task::JoinSet`.
+4. **`crates/redteamer-detectors`**:
+   - `normalize.rs`: `normalize_response_variants` de-obfuscates zero-width characters, Base64 (>=16 chars), Hex (>=16 chars), and ROT13 before detector evaluation.
+   - `semantic.rs`: `SemanticDetector` using vendored ONNX model (`all-MiniLM-L6-v2`) via `ort = "=2.0.0-rc.13"`. Precomputes 35 reference embeddings at construction time for a 30x evaluation speedup.
+   - `llm_judge.rs`: Secondary LLM evaluator parsing JSON verdict fences.
+   - `string_match.rs`, `regex_set.rs`, `lib.rs` (`CanaryDetector`, `LengthDetector`).
 
-7. **`crates/redteamer-reporters`** — CVSS v4.0 mapper and 6 report exporters.
-   - `src/owasp_mapper.rs`: `CvssLlmComputer` (`compute` and `compute_for_mutation` which adjusts `AC:L` vs `AC:H`), `severity_breakdown`, `findings_from_records`, `probe_summaries_from_records`, `build_report_context`.
-   - `src/lib.rs`: `OutputSink` (`Stdout`, `File`), `JsonExporter`, `JsonlExporter`, `exporter_factory`.
-   - `src/csv.rs`: `CsvExporter` (RFC 4180 escaping).
-   - `src/markdown.rs`: `MarkdownExporter` (ASR table + CVSS findings table).
-   - `src/html.rs` & `src/templates/report.html.hbs`: `HtmlExporter` (Handlebars template with dark-theme dashboard).
-   - `src/sarif.rs`: `SarifExporter` (SARIF 2.1.0 with `locations` and repository `informationUri`).
+5. **`crates/redteamer-probes`**:
+   - `lib.rs`: Embeds all 11 YAML templates. Implements `TemplateProbe`, PAIR (Prompt Automatic Iterative Refinement) tree search attacker loop with candidate scoring (`score_candidate`), temperature ramping, and early exit on `Verdict::Vulnerable`.
+   - `evaluate_verdict`: Polarity-aware verdict calculation. Checked against `default_refusals` (expanded to include cloud safety phrases: `blocked by`, `content management policy`, `content filtering policy`, `content safety policy`, `responsible ai`, `safety filters`).
 
-8. **`crates/redteamer-cli`** — Binary `llm-redteamer`.
-   - `src/main.rs`: Subcommands `scan`, `list` (`--kind probes|detectors`), and `diff` (`<baseline.json> <current.json> [--fail-on-regression]`). Includes offline `CliMockAdapter` (`--target mock`).
+6. **`crates/redteamer-orchestrator`**:
+   - `scan.rs`: Global semaphore concurrency cap, per-request progress updates via `AtomicUsize`, live streaming JSONL records (`--stream-jsonl`), and checkpoint resume (`--resume`).
 
----
+7. **`crates/redteamer-reporters`**:
+   - `owasp_mapper.rs`: Dynamic CVSS v4.0 calculator incorporating Shannon byte entropy ($H \ge 4.5$ bits escalates `VC:H` / `SC:H`) and conversational turn depth ($T \ge 2$ escalates `AC:H`).
+   - 6 Exporters: JSON, JSONL, CSV, Markdown, interactive HTML (Handlebars dark-mode dashboard with SVG severity chart and sortable tables), and SARIF 2.1.0.
 
-## 4. Everything Learned & Verified in This Session (Critical Context for v0.3)
-
-During our deep audit of the codebase and official OpenAI / Anthropic / Ollama documentation, we verified the exact truth of every component and discovered **4 new bugs (`G15`–`G18`)** in addition to the architectural gaps (`G1`–`G14`):
-
-### 1. Critical Bug `G15`: Transposed `with_base_url` Arguments in `crates/redteamer-cli/src/main.rs`
-- **Seen in**:
-  - `crates/redteamer-adapters/src/openai.rs:43-47`: `pub fn with_base_url(api_key: impl Into<String>, model: impl Into<String>, base_url: impl Into<String>)`
-  - `crates/redteamer-adapters/src/anthropic.rs:41-45`: `pub fn with_base_url(api_key: impl Into<String>, model: impl Into<String>, base_url: impl Into<String>)`
-  - `crates/redteamer-cli/src/main.rs:563`: `OpenAiAdapter::with_base_url(url, api_key, model)?`
-  - `crates/redteamer-cli/src/main.rs:593`: `AnthropicAdapter::with_base_url(url, api_key, model)?`
-  - `crates/redteamer-cli/src/main.rs:606`: `OpenAiAdapter::with_base_url(target, api_key, model)?`
-- **Impact**: Because all 3 arguments are `impl Into<String>`, the compiler did not catch that `main.rs` passes `(url, api_key, model)` instead of `(api_key, model, url)`. Passing `--base-url` or `--target http://...` sends HTTP requests to `"{model}/chat/completions"` with `Authorization: Bearer {url}` and sends `api_key` as the model name!
-
-### 2. High Bug `G8`: Why `evaluate_verdict` Returned `Partial` on `LLM02`, `LLM03`, `LLM05`–`LLM09`
-- **Seen in**: `crates/redteamer-probes/src/lib.rs:221-241`:
-  ```rust
-  let has_refusal_detector = outcomes
-      .iter()
-      .any(|o| o.polarity == DetectorPolarity::Refusal);
-  if !has_refusal_detector {
-      // checks default_refusals: "i cannot", "i can't", "cannot comply", ...
-  }
-  ```
-- **Impact**: Every template that defines an inline `refusal_match` rule (`LLM02`, `LLM03`, `LLM05`, `LLM06`, `LLM07`, `LLM08`, `LLM09`) produces a `DetectionOutcome` with `polarity: DetectorPolarity::Refusal`. When the model refuses with standard phrasing (e.g. `"I cannot comply with that request..."` from `CliMockAdapter` or a real LLM) that doesn't match the narrow domain needle (e.g. `"i cannot recommend"` in `LLM03`), `matched` is `false`, **and** `has_refusal_detector` is `true`, so `default_refusals` is skipped and the response is misclassified as `Verdict::Partial`!
-- **Fix**: Remove the `if !has_refusal_detector` gate so baseline refusal phrases are always checked when no vulnerable rule matched.
-
-### 3. High Bug `G16`: CLI `--system-prompt` Overwritten by Template `system_prompt`
-- **Seen in**: `crates/redteamer-probes/src/lib.rs:284-287` and `crates/redteamer-adapters/src/{openai,anthropic,ollama}.rs`.
-- **Impact**: `TemplateProbe::run` sets `opts.system_prompt = self.template.effective_system_prompt()`, which is `Some(...)` for nearly all built-in templates. The adapters use `opts.system_prompt.or(self.default_options.system_prompt)`, silently discarding the user's `--system-prompt` CLI flag.
-- **Fix**: When both `self.default_options.system_prompt` and `opts.system_prompt` are `Some`, concatenate them (`"{default_sp}\n\n{probe_sp}"`) so the user's custom system prompt is tested alongside any probe instructions/canaries.
-
-### 4. High Gap `G1`: Per-Probe Concurrency Multiplier (`P × C`) & Per-Probe Progress
-- **Seen in**: `crates/redteamer-orchestrator/src/scan.rs:51-70` and `crates/redteamer-probes/src/lib.rs:302`.
-- **Impact**: `ScanConfig::execute` spawns all 10 probes concurrently, and each probe creates its own `Semaphore::new(concurrency)`, allowing `10 × 8 = 80` concurrent requests instead of 8. Also, `on_record_progress` only fires when an entire probe finishes.
-- **Fix**: Wrap `self.target` in `ScanConfig::execute` with a `ThrottledAdapter` holding a single shared `Arc<Semaphore>` of size `self.concurrency` and an `AtomicUsize` that fires `progress_callback` on every completed request.
-
-### 5. Verified Provider Metadata & Tool-Calling Wire Schemas (`G3`, `G10`, `G17`)
-- **Token usage metadata keys already stored in `AttackRecord.metadata`**:
-  - `OpenAiAdapter` (`openai.rs:137-140, 216-221`): `{"prompt_tokens": u64, "completion_tokens": u64}`
-  - `AnthropicAdapter` (`anthropic.rs:120-126, 237-240`): `{"stop_reason": ..., "usage": {"input_tokens": u64, "output_tokens": u64}}`
-  - `OllamaAdapter` (`ollama.rs:205-208`): `{"prompt_eval_count": Option<u64>, "eval_count": Option<u64>}`
-- **Tool-calling schemas verified against official docs**:
-  - **OpenAI**: Request `tools: [{"type": "function", "function": {"name", "description", "parameters"}}]` -> Response `choices[0].message.tool_calls: [{"id", "type": "function", "function": {"name", "arguments": "<json string>"}}]`. Also check `choices[0].message.refusal: Option<String>` when `content` is `null`.
-  - **Anthropic**: Request `tools: [{"name", "description", "input_schema"}]` -> Response `content` blocks with `{"type": "tool_use", "id", "name", "input": {...}}`. Also update default model in `main.rs:591` from retired `"claude-3-5-sonnet-20241022"` to `"claude-sonnet-4-5"`.
-  - **Ollama**: Request `tools: [{"type": "function", "function": {"name", "description", "parameters"}}]` -> Response `message.tool_calls: [{"function": {"name", "arguments": {...}}}]`.
-
-### 6. Zero-Dependency Decisions for Offline Builds (`G7`, `G11`)
-- **Mock HTTP Server (`G11`)**: User confirmed using a small hand-written `tokio::net::TcpListener` mock server in tests instead of adding `wiremock`. Enabling `"net"` and `"io-util"` on `tokio` in root `Cargo.toml` line 37 works 100% offline with the existing `Cargo.lock`.
-- **Base64 Response Normalizer (`G7`)**: `base64 = "0.22"` is already in root `Cargo.toml` line 40; adding `base64.workspace = true` to `crates/redteamer-detectors/Cargo.toml` works 100% offline.
+8. **`crates/redteamer-cli`**:
+   - Modular CLI structure in `src/cmd/` (`scan.rs`, `diff.rs`, `list.rs`, `health.rs`) and `adapter_builder.rs`. Integration tests in `tests/cli_integration.rs`.
 
 ---
 
-## 4B. Deep Technical Lessons & Call-Site Map from Phases 0–5
+## 4. Key Architectural Insights & Lessons Learned
 
-1. **Exact Struct-Literal Call Sites (for Phases 6 & 8 Schema Additions)**:
-   - **`AdapterResponse`** is constructed by struct literal in 8 places:
-     1. `crates/redteamer-adapters/src/openai.rs:134`
-     2. `crates/redteamer-adapters/src/anthropic.rs:234`
-     3. `crates/redteamer-adapters/src/ollama.rs:202`
-     4. `crates/redteamer-cli/src/main.rs:534` (`CliMockAdapter`)
-     5. `crates/redteamer-orchestrator/tests/integration_test.rs:49`
-     6. `crates/redteamer-detectors/src/llm_judge.rs:216`
-     7. `crates/redteamer-probes/src/lib.rs:538`
-     8. `crates/redteamer-probes/src/lib.rs:655`
-   - **`GenerationOptions`** is constructed by struct literal in:
-     1. `crates/redteamer-cli/src/main.rs:218`
-     2. `crates/redteamer-probes/src/lib.rs:284` (uses `..GenerationOptions::default()`)
-   - **`AttackRecord`** is constructed in `AttackRecord::new` (`crates/redteamer-core/src/types.rs:469`).
-   - **`ReportContext`** is constructed in:
-     1. `crates/redteamer-reporters/src/owasp_mapper.rs` (`build_report_context`)
-     2. `crates/redteamer-reporters/src/lib.rs` (`all_six_exporters_render_valid_artifacts` golden test)
+1. **Cloud Safety Filter Status Codes vs. Red-Team Verdict**:
+   - Azure OpenAI returns HTTP 400 on `ResponsibleAIPolicyViolation`.
+   - Gemini returns HTTP 400/403 or HTTP 200 with `finishReason: "SAFETY"`.
+   - OpenAI returns HTTP 400 on `content_filter`.
+   - Without adapter-level interception, returning `Err(RedTeamerError::Adapter)` causes the probe runner to record `Verdict::Error`.
+   - Intercepting these safety signals and converting them to `Ok(AdapterResponse)` with refusal text ensures that `evaluate_verdict` correctly scores them as `Verdict::Resistant` (the security control successfully defended the model).
 
-2. **`ort = "=2.0.0-rc.13"` API Nuances (`crates/redteamer-detectors/src/semantic.rs`)**:
-   - `ort::session::Session::run` requires `&mut self`, so `Session` is wrapped in `std::sync::Mutex<Session>` inside `SemanticDetector` (`semantic.rs:24, 101`).
-   - Input tensors are created via `ort::value::Tensor::from_array(([1usize, seq_len], vec))` and passed via `ort::inputs!["input_ids" => ids_tensor, "attention_mask" => mask_tensor, "token_type_ids" => type_tensor]`.
-   - Output tensors are extracted via `outputs[0].try_extract_tensor::<f32>()`, which returns `(&Shape, &[f32])` (a shape + flat slice tuple, not `ndarray`).
+2. **Enterprise Gateway Authentication**:
+   - Direct Azure OpenAI endpoints (`*.openai.azure.com`) accept `api-key`.
+   - Azure API Management gateways (`*.azure-api.net`) require `Ocp-Apim-Subscription-Key`.
+   - `AzureOpenAiAdapter` sends both headers simultaneously, working transparently across both direct resources and enterprise proxies. Entra ID JWT Bearer tokens are automatically recognized and routed via `Authorization: Bearer <token>`.
 
-3. **CVSS v4.0 & Detector Attribution Nuances (`crates/redteamer-reporters/src/owasp_mapper.rs`)**:
-   - `CvssVector::severity(&self)` returns `Option<Severity>`, and `Severity` implements `fmt::Display` (`crates/redteamer-core/src/types.rs`).
-   - `CvssLlmComputer::compute_for_mutation(category, mutation_type)` emits `AC:L` for direct attacks (`MutationType::None | MutationType::ContextFraming`) and `AC:H` for evasion/multi-turn mutations (`CharacterSubstitution`, `WordSubstitution`, `EncodingWrapper`, `ConversationalEscalation`, `TokenPerturbation`, `LanguageSwitch`).
-   - `findings_from_records` attributes a finding's `detector_name` by selecting `.find(|d| d.matched && d.polarity == DetectorPolarity::Vulnerable)` (never `detections.first()`, which could be an unmatched rule or a `Refusal` rule).
+3. **Enterprise TLS & Corporate Proxies**:
+   - Standard sandbox mode runs offline. In live deployments with corporate SSL inspection, setting `REDTEAMER_CA_BUNDLE=/path/to/corporate-ca.pem` (or `SSL_CERT_FILE`) loads the custom root certificates into reqwest's rustls engine.
+   - Setting `REDTEAMER_INSECURE_TLS=1` enables lab testing against internal self-signed test environments.
 
-4. **Zero Ignored Tests Policy & Clippy Strictness**:
-   - All unit tests, integration tests, and doc-tests must run with **0 ignored** (`44 passed; 0 failed; 0 ignored`). Use ` ```no_run ` rather than ` ```ignore ` for doc-tests that require async runtimes/targets (`crates/redteamer-orchestrator/src/scan.rs:120`).
-   - `Command::Scan(Box<ScanArgs>)` in `crates/redteamer-cli/src/main.rs:38` is boxed to satisfy `clippy::large_enum_variant` when adding new CLI flags to `ScanArgs`.
+4. **Ephemeral Canaries vs. Static Tokens**:
+   - Static canaries in templates cause cross-session bleed and false positives.
+   - `ProbeTemplate::generate_ephemeral_canary(session_id)` generates a cryptographic UUID-derived token unique to that exact scan session, dynamically injected into system prompts and evaluated by `CanaryDetector`.
 
-5. **CLI Exit Code Contract (`crates/redteamer-cli/src/main.rs:178-208`)**:
-   - `0`: Scan or diff completed cleanly without breaching thresholds.
-   - `1`: Runtime/config error, failed `health_check()`, or 100% of records resulted in `Verdict::Error`.
-   - `2`: Security gate breached (`--fail-on <low|medium|high|critical>` or `diff --fail-on-regression`).
-
-6. **Supply-Chain Audit (`deny.toml`)**:
-   - `cargo deny --offline check` validates licenses (`MIT OR Apache-2.0`), bans, sources, and advisories against the offline `Cargo.lock`. Any dependency or feature changes in `Cargo.toml` must pass `cargo deny --offline check`.
+5. **Dynamic CVSS v4.0 Threat Calibration**:
+   - Single-turn prompt injections with low complexity are scored with `AC:L`.
+   - Multi-turn conversational escalations requiring >=2 turns are scored with `AC:H` (higher attack complexity).
+   - Responses exfiltrating high-entropy strings ($H \ge 4.5$ bits per byte, characteristic of API keys, hashes, or base64 secrets) escalate confidentiality impact to `VC:H` / `SC:H`.
 
 ---
 
-## 5. How to Resume in the New Session
+## 5. Verification Commands (Run to Confirm State)
 
-When the user starts a new session and asks you to read `SESSION_HANDOFF.md`:
-1. Read `SESSION_HANDOFF.md`, `improve.md`, and `project-progress.md` in full (100% of lines).
-2. Confirm with the user that you are ready to start **Phase 6** from `improve.md` (or begin Phase 6 immediately if instructed to proceed):
-   - **Phase 6**: Critical Bug Fixes (`G15`, `G16`), Global Concurrency & Per-Request Progress (`G1`, `G5`), Error Reasons on `AttackRecord` (`G2`), Typed Token/Latency Telemetry & Deterministic Ordering (`G3`, `G4`), and Workspace Formatting (`G18`).
-   - **Phase 7**: Verdict Refusal Fix & Deduplication (`G6`, `G8`), Response Normalizer (`G7`), Labeled Evaluation Suite (`G8`), and `SemanticDetector` CLI (`G9`).
-   - **Phase 8**: Protocol-Level Tool Calling (`G10`), Anthropic Model & OpenAI Refusal Updates (`G17`), and Hand-Written `TcpListener` Adapter HTTP Tests (`G11`).
-   - **Phase 9**: Live JSONL Streaming (`--stream-jsonl`) & Checkpoint Resume (`--resume`) (`G12`).
-   - **Phase 10**: Adaptive Multi-Turn Attacker Loop (`G13`).
-   - **Phase 11**: CLI Binary Integration Tests (`CARGO_BIN_EXE_llm-redteamer`), Finding-Level Diff, and `v0.3.0` Release Polish (`G14`).
+To re-verify the complete workspace offline in the new session, run:
+
+```bash
+# 1. Format check
+cargo fmt --all -- --check
+
+# 2. Strict static analysis (all warnings denied)
+cargo clippy --workspace --all-targets --offline -- -D warnings
+
+# 3. Comprehensive test suite (88 tests)
+cargo test --workspace --offline
+
+# 4. Dependency and license audit
+cargo deny --offline check
+
+# 5. End-to-end CLI scan against built-in mock target
+cargo run --offline -p redteamer-cli -- scan --target mock --format markdown
+```
+
+---
+
+## 6. How to Resume in the New Session
+
+When starting the next session:
+1. Confirm that `git status` is clean and all 88 workspace tests pass.
+2. Review `improve.md` section 4 for the future roadmap proposals (`FG1`–`FG5`):
+   - **`FG1`**: Executive Document Exporters (DOCX / PDF).
+   - **`FG2`**: Distributed Worker Pool / Multi-IP Rotation.
+   - **`FG3`**: Real-Time Streaming Early Termination (SSE token scanning).
+   - **`FG4`**: Model Context Protocol (MCP) Server Attacks.
+   - **`FG5`**: Automated DPO / RLHF Dataset Exporter (ShareGPT / Alpaca format).
+3. Ask the user which feature or roadmap item they would like to pursue next, or proceed with tagging and releasing `v0.4.0` / `v0.4.1`.

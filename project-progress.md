@@ -151,3 +151,29 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
 - [x] **21.4** Integrated `gemini`, `azure`, `openrouter`, and `vllm` target providers into `create_adapter` factory and CLI `adapter_builder.rs`. Documented provider environment variables in `README.md`.
 - [x] **21.5** Added mock HTTP server integration tests in `crates/redteamer-adapters/src/lib.rs` verifying wire protocols, header formats, and payload parsing for Gemini, Azure, and OpenRouter/vLLM.
 - [x] **21.6** Full verification: all 84 workspace tests passing, 0 clippy warnings, zero cargo deny advisories.
+
+---
+
+## Phase 22 — Verification & Enterprise Hardening: Cloud Safety Refusals, TLS CA Roots & Template Validation
+- [x] **22.1** Intercepted Cloud Safety Filter Violations across all adapters to prevent safety interventions from classifying as `Verdict::Error`:
+  - **Azure OpenAI**: Intercepts HTTP 400 with `ResponsibleAIPolicyViolation`, `content_filter`, or `content management policy` and HTTP 200 with `finish_reason == "content_filter"`.
+  - **Google Gemini**: Intercepts HTTP 400/403 safety errors and HTTP 200 with `finish_reason == "SAFETY" | "BLOCKLIST" | "PROHIBITED_CONTENT"` or `promptFeedback.blockReason`.
+  - **OpenAI & OpenAI-Compatible**: Intercepts HTTP 400 `content_filter` / `content_policy_violation` and HTTP 200 `finish_reason == "content_filter"`.
+  - **Anthropic**: Intercepts HTTP 400 safety blocks.
+  - **Probes**: Expanded `evaluate_verdict`'s `default_refusals` to include `blocked by`, `content management policy`, `content filtering policy`, `content safety policy`, and `responsible ai` so all safety blocks reliably resolve to `Verdict::Resistant`.
+- [x] **22.2** Enterprise Proxy & Custom TLS CA Root Support:
+  - Centralized `build_http_client` and `build_http_client_with_timeout` across all adapters in `crates/redteamer-adapters/src/lib.rs`.
+  - Supports loading custom corporate PEM CA bundles via `REDTEAMER_CA_BUNDLE` or `SSL_CERT_FILE`.
+  - Supports isolated lab environments via `REDTEAMER_INSECURE_TLS=1` (`danger_accept_invalid_certs(true)`).
+  - Preserved automatic proxy bypass for loopback targets (`127.0.0.1`, `localhost`, `[::1]`).
+- [x] **22.3** Universal Azure & APIM Gateway Authentication:
+  - `AzureOpenAiAdapter` sends both `api-key` and `Ocp-Apim-Subscription-Key` headers simultaneously, enabling frictionless authentication against direct Azure OpenAI endpoints and corporate APIM gateways.
+  - Added Entra ID Bearer token auto-detection for JWT tokens.
+- [x] **22.4** Core Error Retryability:
+  - Extended `RedTeamerError::is_retryable()` to recognize `http 529` and `overloaded`.
+- [x] **22.5** Built-in Template Compilation & Schema Verification:
+  - Added unit test `all_eleven_embedded_owasp_templates_compile_and_validate` verifying all 11 built-in templates compile and meet schema, category, description, and inline rule requirements.
+- [x] **22.6** Full Workspace Verification & Git Commit:
+  - All 88 tests passing (`cargo test --workspace --offline`), 0 clippy warnings (`cargo clippy --workspace --all-targets --offline -- -D warnings`), `cargo fmt --all -- --check` clean, `cargo deny --offline check` clean (`advisories ok, bans ok, licenses ok, sources ok`).
+  - Committed to `main` as `9ecbdb6`.
+
