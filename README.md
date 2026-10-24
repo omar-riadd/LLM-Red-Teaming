@@ -104,6 +104,26 @@ cargo run -p redteamer-cli -- scan --target mock --semantic-model builtin --sema
   cargo run -p redteamer-cli -- scan --target ollama --semantic-model path/to/model.onnx --semantic-tokenizer path/to/tokenizer.json --semantic-threshold 0.80
   ```
 
+## Docker & Containerization
+
+### Docker Run
+Run scans inside an isolated, non-root container without local Rust tooling:
+```bash
+# Build the container image
+docker build -t llm-redteamer:latest .
+
+# Run scan against a target (mounting ./reports for artifact output)
+docker run --rm -v $(pwd)/reports:/home/redteamer/reports llm-redteamer:latest \
+  scan --target mock --format html -o /home/redteamer/reports/report.html
+```
+
+### Docker Compose (Local Ollama Red-Teaming)
+Orchestrate an end-to-end local red-teaming campaign with Ollama:
+```bash
+# Start Ollama service and execute automated scan against local model
+docker compose up --build
+```
+
 ## Development & Verification
 
 ```bash

@@ -119,5 +119,11 @@
 - [x] **17.1** Implemented stateful PAIR (Prompt Automatic Iterative Refinement) tree search attacker loop with candidate branch generation (N=3 default, configurable via `--attacker-branches` or YAML `pair_branches`), temperature ramping, polarity-aware candidate scoring (`score_candidate`), winning branch commit to conversation history, and early exit on `Verdict::Vulnerable`. Added integration tests in `crates/redteamer-probes/tests/pair_loop.rs`. All 75 workspace tests passing.
 
 ### Phase 18 — Docker Image & Release Automation (GA13)
-- [ ] **18.1** `Dockerfile` (distroless) + `docker-compose.yml` for Ollama
-- [ ] **18.2** `.github/workflows/release.yml` for tagged releases
+- [x] **18.1** Created multi-stage `Dockerfile` (`rust:bookworm` builder + `debian:bookworm-slim` runtime, non-root user `redteamer`, CA certificates), `.dockerignore`, and validated `docker-compose.yml` for local red-teaming against an Ollama service. Documented in `README.md`.
+- [x] **18.2** Created `.github/workflows/release.yml` automating cross-platform binary builds (Linux x86_64, Linux aarch64, macOS x86_64, macOS aarch64, Windows x86_64), SHA-256 checksums, CycloneDX 1.5 JSON SBOM attachment, GitHub Releases on `v*` tags, and multi-arch Docker publishing to GitHub Container Registry (`ghcr.io`).
+
+---
+
+## v0.4 Completion Status
+All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v0.4.md` are 100% completed, verified with real tests, audited with `cargo deny`, and documented.
+
