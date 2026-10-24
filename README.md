@@ -10,12 +10,12 @@ graph TD
   Orchestrator["redteamer-orchestrator<br/>ScanBuilder / ScanConfig"] --> Probes
   Orchestrator --> Adapters
   Probes["redteamer-probes<br/>TemplateProbe (LLM01–LLM10)"] --> Payload["redteamer-payload<br/>ProbeTemplate + MutationPipeline"]
-  Adapters["redteamer-adapters<br/>TargetAdapter: ollama / openai / anthropic / mock"] --> LLM[("Target LLM")]
+  Adapters["redteamer-adapters<br/>TargetAdapter: ollama / openai / anthropic / gemini / azure / mcp / mock"] --> LLM[("Target LLM / MCP Server")]
   Probes -- "send_chat + retry/backoff" --> Adapters
   Probes --> Detectors["redteamer-detectors<br/>DetectorPipeline (string, regex, canary, length, judge, semantic)"]
   Orchestrator --> Report["ScanReport<br/>records: Vec&lt;AttackRecord&gt;"]
   Report --> Reporters["redteamer-reporters<br/>CvssLlmComputer + exporter_factory"]
-  Reporters --> Sink["OutputSink<br/>Stdout / File (json, jsonl, md, html, sarif, csv)"]
+  Reporters --> Sink["OutputSink<br/>Stdout / File (json, jsonl, md, html, sarif, csv, dpo)"]
   Core["redteamer-core<br/>types, traits, error, CVSS v4.0"] -. defines .-> CLI
   Core -. defines .-> Orchestrator
   Core -. defines .-> Probes
@@ -29,13 +29,13 @@ graph TD
 | Crate | Purpose |
 |---|---|
 | `redteamer-core` | Core domain types (`OwaspCategory`, `AttackRecord`, `Finding`, `CvssVector`, `SeverityBreakdown`, `ProbeSummary`, `TokenUsage`, `ToolDefinition`, `ToolCall`), error model (`is_retryable()`), and async trait contracts (`TargetAdapter::send_chat`, `Detector`, `Probe`, `ReportExporter`). |
-| `redteamer-adapters` | Chat- and tool-aware LLM backends (`OllamaAdapter` via `/api/chat`, `OpenAiAdapter` via `/v1/chat/completions`, `AnthropicAdapter` via `/v1/messages`) with token-bucket rate limiting, system prompt merging, and `GenerationOptions`. |
+| `redteamer-adapters` | Chat-, tool-, and protocol-aware backends (`OllamaAdapter`, `OpenAiAdapter`, `AnthropicAdapter`, `GeminiAdapter`, `AzureOpenAiAdapter`, `OpenAiCompatibleAdapter`, and `McpAdapter` for HTTP & Stdio Model Context Protocol servers) with token-bucket rate limiting, real-time SSE streaming early termination, and `GenerationOptions`. |
 | `redteamer-payload` | YAML `ProbeTemplate` loader with inline detector rules, tool schemas, canary injection, static & adaptive multi-turn conversation chains, and `MutationPipeline` (`Identity`, `Base64`, `Rot13`, `Reverse`, `Uppercase`, `Wrap`, `Leetspeak`, `Homoglyph`, `ZeroWidth`, `JsonTaskWrap`). |
 | `redteamer-detectors` | Concurrent `DetectorPipeline` with pre-detection response de-obfuscation (`zero-width`, `Base64`, `Hex`, `ROT13`), `StringMatchDetector` (SIMD `memchr`), `RegexSetDetector`, `CanaryDetector`, `LengthDetector`, `ToolCallDetector`, `LlmJudgeDetector`, and ONNX Runtime `SemanticDetector`. |
-| `redteamer-probes` | Unified `TemplateProbe` engine embedding all 10 OWASP LLM 2025 templates (`templates/llm01_*.yaml` – `templates/llm10_*.yaml`), adaptive multi-turn Crescendo loop, and custom directory loading (`--probes-dir`). |
+| `redteamer-probes` | Unified `TemplateProbe` engine embedding all 11 OWASP LLM 2025 templates (`templates/llm01_*.yaml` – `templates/llm10_*.yaml`), stateful PAIR tree search attacker loop, and custom directory loading (`--probes-dir`). |
 | `redteamer-orchestrator` | Concurrent campaign runner (`ScanBuilder`, `ScanConfig`, `ScanReport`) with global concurrency semaphore, per-request progress callbacks, live JSONL streaming, and checkpoint resume. |
-| `redteamer-reporters` | Dynamic CVSS v4.0 computer (`CvssLlmComputer::compute_for_mutation`), per-probe ASR calculator, token/latency (`p50`/`p95`) telemetry, and 6 exporters (`Json`, `Jsonl`, `Markdown`, `Html`, `Sarif` v2.1.0, RFC 4180 `Csv`). |
-| `redteamer-cli` | `llm-redteamer` binary (`scan`, `list`, `diff`) with `stderr` progress/telemetry, live JSONL streaming (`--stream-jsonl`), crash recovery (`--resume`), adaptive attacker (`--attacker-target`), and CI quality gates (`--fail-on`, `--fail-on-regression`). |
+| `redteamer-reporters` | Dynamic CVSS v4.0 computer (`CvssLlmComputer::compute_for_mutation`), per-probe ASR calculator, token/latency (`p50`/`p95`) telemetry, and 7 exporters (`Json`, `Jsonl`, `Markdown`, `Html`, `Sarif` v2.1.0, RFC 4180 `Csv`, and `DpoExporter` for automated RLHF preference datasets). |
+| `redteamer-cli` | `llm-redteamer` binary (`scan`, `list`, `diff`, `health`) with `stderr` progress/telemetry, live JSONL streaming (`--stream-jsonl`), real-time token streaming (`--stream`), DPO dataset export (`--export-dpo`), crash recovery (`--resume`), adaptive attacker (`--attacker-target`), and CI quality gates (`--fail-on`, `--fail-on-regression`). |
 
 ## OWASP Top 10 for LLM Applications (2025) Coverage
 
@@ -65,6 +65,7 @@ graph TD
   - **OpenRouter**: `--target openrouter` (reads `OPENROUTER_API_KEY`)
   - **vLLM / Local Inference**: `--target vllm` (reads `VLLM_BASE_URL` or defaults to `http://localhost:8000/v1`)
   - **Ollama**: `--target ollama` (`ollama serve` + `ollama pull llama3.2`)
+  - **Model Context Protocol (MCP)**: `--target mcp` (reads `MCP_SERVER_URL` or defaults to `http://127.0.0.1:8000/mcp`) or `--target stdio://<command>`
   - **Mock / Offline Testing**: `--target mock`
   - **Custom Gateway**: `--target http(s)://...`
 
@@ -74,7 +75,7 @@ graph TD
 # 1. Build workspace
 cargo build --workspace --all-targets
 
-# 2. List built-in probes (all 10 OWASP LLM 2025 categories) and detectors
+# 2. List built-in probes (all 11 OWASP LLM 2025 templates) and detectors
 cargo run -p redteamer-cli -- list --kind probes
 cargo run -p redteamer-cli -- list --kind detectors
 
@@ -85,16 +86,22 @@ cargo run -p redteamer-cli -- scan --target mock --probes llm01_prompt_injection
 cargo run -p redteamer-cli -- scan --target ollama --model llama3.2 --stream-jsonl checkpoint.jsonl --output report.json
 cargo run -p redteamer-cli -- scan --target ollama --model llama3.2 --resume checkpoint.jsonl --stream-jsonl checkpoint.jsonl --output report.json
 
-# 5. Run adaptive multi-turn evaluations with a secondary attacker model
+# 5. Run real-time streaming with early termination upon canary extraction
+cargo run -p redteamer-cli -- scan --target mock --probes llm01_prompt_injection --stream --format markdown
+
+# 6. Export automated DPO / RLHF preference dataset alongside markdown report
+cargo run -p redteamer-cli -- scan --target mock --export-dpo dpo_dataset.json --format markdown
+
+# 7. Run adaptive multi-turn evaluations with a secondary attacker model (stateful PAIR tree search)
 cargo run -p redteamer-cli -- scan --target ollama --model llama3.2 --attacker-target ollama --attacker-model llama3.2 --format html --output report.html
 
-# 6. Enforce a CI quality gate (exits with code 2 if any High/Critical finding occurs)
+# 8. Enforce a CI quality gate (exits with code 2 if any High/Critical finding occurs)
 cargo run -p redteamer-cli -- scan --target mock --fail-on high --format json --output current.json
 
-# 7. Compare two JSON scan reports for per-probe ASR & finding-level regressions
+# 9. Compare two JSON scan reports for per-probe ASR & finding-level regressions
 cargo run -p redteamer-cli -- diff baseline.json current.json --fail-on-regression
 
-# 8. Run scan with bundled ONNX sentence-transformer semantic detector
+# 10. Run scan with bundled ONNX sentence-transformer semantic detector
 cargo run -p redteamer-cli -- scan --target mock --semantic-model builtin --semantic-threshold 0.78
 ```
 
