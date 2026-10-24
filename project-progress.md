@@ -91,8 +91,8 @@
 - [x] **P.1** Wrote `PLAN_v0.4.md` covering all 14 gaps (GA1–GA14) across 7 phases (12–18). Awaiting user approval to execute.
 
 ### Phase 12 — Git Commit, Tag v0.3.0, SBOM, CI Hardening (GA1, GA4, GA12)
-- [ ] **12.1** `git add -A && git commit && git tag v0.3.0`
-- [ ] **12.2** `cargo-cyclonedx` SBOM → `sbom/` + CI upload artifact
+- [x] **12.1** `git add -A && git commit && git tag v0.3.0` (commit `69a8e78`, tag `v0.3.0`).
+- [x] **12.2** `cargo-cyclonedx` v0.5.9 installed; generated CycloneDX 1.5 JSON SBOM with 233 components at `sbom/llm-redteamer-v0.3.0.cdx.json`; added `sbom` job to `.github/workflows/ci.yml`.
 
 ### Phase 13 — Expanded Seeds, RAG Injection, Multilingual Probes (GA2, GA8, GA9)
 - [ ] **13.1** Expand all 10 templates to 30+ seeds each
