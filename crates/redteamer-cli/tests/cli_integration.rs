@@ -159,7 +159,7 @@ fn stream_jsonl_resume_and_finding_level_diff_exit_codes() {
 
     let stream_raw = fs::read_to_string(&stream_path).expect("failed to read stream.jsonl");
     let stream_lines: Vec<&str> = stream_raw.lines().collect();
-    assert_eq!(stream_lines.len(), 30);
+    assert_eq!(stream_lines.len(), 261);
 
     // 3. Truncate checkpoint to 5 lines and resume
     let partial_content = format!("{}\n", stream_lines[..5].join("\n"));
@@ -187,7 +187,7 @@ fn stream_jsonl_resume_and_finding_level_diff_exit_codes() {
 
     let resumed_stream =
         fs::read_to_string(&partial_path).expect("failed to read resumed partial.jsonl");
-    assert_eq!(resumed_stream.lines().count(), 30);
+    assert_eq!(resumed_stream.lines().count(), 261);
 
     // 4. Diff baseline -> current with --fail-on-regression (expects exit code 2 and New Vulnerabilities)
     let diff_regressed = cli_bin()
@@ -201,7 +201,7 @@ fn stream_jsonl_resume_and_finding_level_diff_exit_codes() {
         .expect("diff command failed");
     assert_eq!(diff_regressed.status.code(), Some(2));
     let diff_reg_stdout = String::from_utf8_lossy(&diff_regressed.stdout);
-    assert!(diff_reg_stdout.contains("## New Vulnerabilities (6)"));
+    assert!(diff_reg_stdout.contains("## New Vulnerabilities (96)"));
 
     // 5. Diff current -> baseline with --fail-on-regression (expects exit code 0 and Resolved Vulnerabilities)
     let diff_improved = cli_bin()
@@ -215,7 +215,7 @@ fn stream_jsonl_resume_and_finding_level_diff_exit_codes() {
         .expect("diff command failed");
     assert!(diff_improved.status.success());
     let diff_imp_stdout = String::from_utf8_lossy(&diff_improved.stdout);
-    assert!(diff_imp_stdout.contains("## Resolved Vulnerabilities (6)"));
+    assert!(diff_imp_stdout.contains("## Resolved Vulnerabilities (96)"));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

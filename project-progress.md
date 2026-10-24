@@ -95,10 +95,10 @@
 - [x] **12.2** `cargo-cyclonedx` v0.5.9 installed; generated CycloneDX 1.5 JSON SBOM with 233 components at `sbom/llm-redteamer-v0.3.0.cdx.json`; added `sbom` job to `.github/workflows/ci.yml`.
 
 ### Phase 13 — Expanded Seeds, RAG Injection, Multilingual Probes (GA2, GA8, GA9)
-- [ ] **13.1** Expand all 10 templates to 30+ seeds each
-- [ ] **13.2** New `templates/llm02_rag_injection.yaml`
-- [ ] **13.3** Multilingual seeds (ar/zh-CN/fr) in LLM01, LLM02, LLM07
-- [ ] **13.4** Update `detection_eval.rs` labeled cases to cover new seeds
+- [x] **13.1** Expanded all 10 templates to 30+ seeds each (corpus expanded from 60 to 312 unique seeds).
+- [x] **13.2** Created new `templates/llm02_rag_injection.yaml` (30 seeds, canary, embedded in binary).
+- [x] **13.3** Added multilingual seeds (Arabic, Simplified Chinese, French) and refusal needles to `llm01`, `llm02`, `llm07`.
+- [x] **13.4** Updated `detection_eval.rs` with 15 new labeled cases (70 cases total) asserting 100% precision and recall; updated `cli_integration.rs` counts. Full scan record count grew from 243 to 1,361.
 
 ### Phase 14 — Bundled `all-MiniLM-L6-v2` Semantic Model (GA3)
 - [ ] **14.1** Download + vendor model to `models/all-MiniLM-L6-v2/`

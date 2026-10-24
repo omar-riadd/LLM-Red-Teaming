@@ -31,6 +31,7 @@ use uuid::Uuid;
 const EMBEDDED_TEMPLATES: &[&str] = &[
     include_str!("../../../templates/llm01_injection.yaml"),
     include_str!("../../../templates/llm02_secrets.yaml"),
+    include_str!("../../../templates/llm02_rag_injection.yaml"),
     include_str!("../../../templates/llm03_supply_chain.yaml"),
     include_str!("../../../templates/llm04_data_poisoning.yaml"),
     include_str!("../../../templates/llm05_improper_output.yaml"),
@@ -949,7 +950,7 @@ rules:
     #[tokio::test]
     async fn llm06_inline_rules_evaluate_executed_resistant_and_tool_calls() {
         let probes = all_template_probes();
-        assert_eq!(probes.len(), 10);
+        assert_eq!(probes.len(), 11);
         let probe = probes
             .into_iter()
             .find(|p| p.name() == "llm06_excessive_agency")
