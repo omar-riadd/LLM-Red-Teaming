@@ -115,7 +115,9 @@ impl AzureOpenAiAdapter {
         } else if self.api_key.starts_with("eyJ") && self.api_key.contains('.') {
             req = req.bearer_auth(&self.api_key);
         } else {
-            req = req.header("api-key", &self.api_key);
+            req = req
+                .header("api-key", &self.api_key)
+                .header("Ocp-Apim-Subscription-Key", &self.api_key);
         }
 
         let response = req
