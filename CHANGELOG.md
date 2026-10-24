@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-10-24
+
+### Added
+
+- **Cloud Safety Filter Refusal Interception**: Mapped Azure OpenAI (`ResponsibleAIPolicyViolation`, `content_filter`), Google Gemini (`SAFETY`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `promptFeedback.blockReason`), OpenAI (`content_filter`), and Anthropic safety blocks to `Ok(AdapterResponse)` with synthesized refusal, ensuring safety defenses classify as `Verdict::Resistant` rather than `Verdict::Error`.
+- **Enterprise TLS & CA Root Loading**: Centralized `build_http_client` supporting custom PEM CA certificates via `REDTEAMER_CA_BUNDLE` / `SSL_CERT_FILE` and isolated lab insecure TLS via `REDTEAMER_INSECURE_TLS=1`.
+- **Universal Azure & APIM Gateway Authentication**: Added dual-header authentication sending both `api-key` and `Ocp-Apim-Subscription-Key`, plus Entra ID Bearer JWT auto-routing.
+- **Enterprise Target Adapters**: Implemented `GeminiAdapter`, `AzureOpenAiAdapter`, and `OpenAiCompatibleAdapter` (supporting vLLM and OpenRouter).
+- **Session-Unique Ephemeral Canaries**: Added dynamic canary generator (`generate_ephemeral_canary`) eliminating cross-session token collisions.
+- **Dynamic CVSS v4.0 Calibration**: Added Shannon byte entropy calculation ($H \ge 4.5$ bits escalates `VC:H` / `SC:H`) and conversational turn depth ($T \ge 2 \to \text{AC:H}$).
+- **Template Verification**: Added unit test verifying all 11 embedded OWASP templates compile with valid categories, descriptions, and inline detector rules.
+
+## [0.4.0] - 2026-10-24
+
+### Added
+
+- **Stateful PAIR Attacker Loop**: Implemented Prompt Automatic Iterative Refinement tree search loop with candidate branch scoring (`score_candidate`), temperature ramping, and winning branch commit.
+- **Corpus Expansion**: Expanded seed corpus from 60 to 312 unique attack seeds across all 11 OWASP templates (`templates/llm02_rag_injection.yaml` added).
+- **Bundled Semantic Model**: Added offline `all-MiniLM-L6-v2` tokenizer and `--semantic-model=builtin` shorthand.
+- **CycloneDX 1.5 JSON SBOM**: Added 233-component SBOM at `sbom/llm-redteamer-v0.3.0.cdx.json` and CI step.
+- **Interactive HTML Report**: Added dark mode toggle, SVG severity doughnut chart, and sortable tables.
+- **CLI Modular Refactor**: Split `main.rs` into subcommands in `cmd/` (`scan`, `diff`, `list`, `health`).
+- **Containerization & CI Automation**: Added multi-stage `Dockerfile`, `docker-compose.yml`, and GitHub Actions release workflow.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added
