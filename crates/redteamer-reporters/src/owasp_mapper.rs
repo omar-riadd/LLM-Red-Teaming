@@ -82,13 +82,19 @@ impl CvssLlmComputer {
             OwaspCategory::UnboundedConsumption => ("N", "N", "N", "H", "N", "N", "N"),
         };
 
-        let _multiplier = self
-            .severity_overrides
-            .get(&category)
-            .copied()
-            .unwrap_or(1.0);
+        let threat_metric = if let Some(&mult) = self.severity_overrides.get(&category) {
+            if mult >= 1.1 {
+                "/E:A"
+            } else if mult <= 0.9 {
+                "/E:P"
+            } else {
+                ""
+            }
+        } else {
+            ""
+        };
         CvssVector::new(format!(
-            "CVSS:4.0/AV:N/AC:{ac}/AT:{at}/PR:N/UI:N/VC:{vc}/VI:{vi}/VA:{va}/SC:{sc}/SI:{si}/SA:{sa}"
+            "CVSS:4.0/AV:N/AC:{ac}/AT:{at}/PR:N/UI:N/VC:{vc}/VI:{vi}/VA:{va}/SC:{sc}/SI:{si}/SA:{sa}{threat_metric}"
         ))
     }
 }
@@ -634,5 +640,19 @@ mod tests {
         assert_eq!(summaries[0].resistant, 1);
         assert_eq!(summaries[0].errors, 1);
         assert!((summaries[0].asr_percent - 50.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn severity_override_applies_threat_metric() {
+        let computer = CvssLlmComputer::new()
+            .with_override(OwaspCategory::PromptInjection, 1.2)
+            .with_override(OwaspCategory::SupplyChain, 0.8);
+        let boosted =
+            computer.compute_for_mutation(OwaspCategory::PromptInjection, MutationType::None);
+        let reduced = computer.compute_for_mutation(OwaspCategory::SupplyChain, MutationType::None);
+        assert!(boosted.vector.ends_with("/E:A"));
+        assert!(reduced.vector.ends_with("/E:P"));
+        assert!(boosted.score() > 0.0);
+        assert!(reduced.score() > 0.0);
     }
 }
