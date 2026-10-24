@@ -34,7 +34,7 @@
   - `20833a6` — `feat: complete v0.4 (Phases 12-18) enterprise red-teaming release`
   - `69a8e78` — `chore: release v0.3.0 and finalize all Phase 6-11 improvements`
 - **Current Verification Baseline**:
-  - `cargo test --workspace --offline` → **92 passed; 0 failed; 0 ignored** across all 8 crates, 8 integration test suites, and 4 doc-tests.
+  - `cargo test --workspace --offline` → **96 passed; 0 failed; 0 ignored** across all 8 crates, 8 integration test suites, and 4 doc-tests.
   - `cargo clippy --workspace --all-targets --offline -- -D warnings` → **0 warnings, 0 errors**.
   - `cargo fmt --all -- --check` → **100% clean**.
   - `cargo deny --offline check` → **advisories ok, bans ok, licenses ok, sources ok**.
@@ -97,7 +97,7 @@ LLM-Red-Teaming/
 
 7. **`crates/redteamer-reporters`**:
    - `owasp_mapper.rs`: Dynamic CVSS v4.0 calculator incorporating Shannon byte entropy ($H \ge 4.5$ bits escalates `VC:H` / `SC:H`) and conversational turn depth ($T \ge 2$ escalates `AC:H`).
-   - 6 Exporters: JSON, JSONL, CSV, Markdown, interactive HTML (Handlebars dark-mode dashboard with SVG severity chart and sortable tables), and SARIF 2.1.0.
+   - 7 Exporters: JSON, JSONL, CSV, Markdown, interactive HTML (Handlebars dark-mode dashboard with SVG severity chart and sortable tables), SARIF 2.1.0, and DPO / ShareGPT alignment dataset exporter.
 
 8. **`crates/redteamer-cli`**:
    - Modular CLI structure in `src/cmd/` (`scan.rs`, `diff.rs`, `list.rs`, `health.rs`) and `adapter_builder.rs`. Integration tests in `tests/cli_integration.rs`.
@@ -144,7 +144,7 @@ cargo fmt --all -- --check
 # 2. Strict static analysis (all warnings denied)
 cargo clippy --workspace --all-targets --offline -- -D warnings
 
-# 3. Comprehensive test suite (92 tests)
+# 3. Comprehensive test suite (96 tests)
 cargo test --workspace --offline
 
 # 4. Dependency and license audit
@@ -159,11 +159,11 @@ cargo run --offline -p redteamer-cli -- scan --target mock --format markdown
 ## 6. How to Resume in the New Session
 
 When starting the next session:
-1. Confirm that `git status` is clean and all 92 workspace tests pass.
-2. Review `improve.md` section 4 for the future roadmap proposals (`FG1`–`FG5`):
+1. Confirm that `git status` is clean and all 96 workspace tests pass.
+2. Review `improve.md` section 4 for the future roadmap proposals:
    - **`FG1`**: Executive Document Exporters (DOCX / PDF).
    - **`FG2`**: Distributed Worker Pool / Multi-IP Rotation.
    - **`FG3`**: Real-Time Streaming Early Termination (SSE token scanning).
    - **`FG4`**: Model Context Protocol (MCP) Server Attacks (Completed in Phase 23).
-   - **`FG5`**: Automated DPO / RLHF Dataset Exporter (ShareGPT / Alpaca format).
+   - **`FG5`**: Automated DPO / RLHF Dataset Exporter (Completed in Phase 24).
 3. Ask the user which feature or roadmap item they would like to pursue next, or proceed with tagging and releasing `v0.4.0` / `v0.4.1`.

@@ -7,7 +7,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use redteamer_core::error::{RedTeamerError, Result};
 use redteamer_core::traits::adapter::GenerationOptions;
 use redteamer_core::traits::detector::Detector;
-use redteamer_core::traits::reporter::ReportFormat;
+use redteamer_core::traits::reporter::{ReportExporter, ReportFormat};
 use redteamer_core::types::Verdict;
 use redteamer_detectors::LlmJudgeDetector;
 use redteamer_probes as probes;
@@ -94,6 +94,10 @@ pub struct ScanArgs {
     #[arg(long, short = 'o')]
     pub output: Option<PathBuf>,
 
+    /// Optional file path to export an automated DPO/RLHF preference dataset (JSON pairs).
+    #[arg(long)]
+    pub export_dpo: Option<PathBuf>,
+
     /// Stream each completed AttackRecord as a JSONL line to this file as it finishes.
     #[arg(long)]
     pub stream_jsonl: Option<PathBuf>,
@@ -123,6 +127,7 @@ pub enum OutputFormat {
     Html,
     Sarif,
     Csv,
+    Dpo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -153,6 +158,7 @@ impl From<OutputFormat> for ReportFormat {
             OutputFormat::Html => Self::Html,
             OutputFormat::Sarif => Self::Sarif,
             OutputFormat::Csv => Self::Csv,
+            OutputFormat::Dpo => Self::Dpo,
         }
     }
 }
@@ -485,6 +491,17 @@ pub async fn run_scan(args: ScanArgs) -> Result<bool> {
     };
     let exporter = redteamer_reporters::exporter_factory(args.format.into(), sink)?;
     exporter.export(&report_ctx).await?;
+
+    if let Some(dpo_path) = args.export_dpo {
+        let dpo_sink = redteamer_reporters::OutputSink::File(dpo_path.clone());
+        let dpo_exporter = redteamer_reporters::DpoExporter::new(dpo_sink);
+        let pairs_count = dpo_exporter.export(&report_ctx).await?;
+        eprintln!(
+            "dpo dataset exported | {} preference pairs written to {}",
+            pairs_count,
+            dpo_path.display()
+        );
+    }
 
     let threshold_exceeded = args.fail_on.is_some_and(|thresh| {
         breakdown

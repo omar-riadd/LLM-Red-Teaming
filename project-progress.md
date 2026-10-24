@@ -193,3 +193,20 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
   - `cargo fmt --all -- --check` 100% clean.
   - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
 
+---
+
+## Phase 24 — Automated DPO / RLHF Dataset Exporter (FG5)
+- [x] **24.1** Added `ReportFormat::Dpo` to `redteamer-core/src/traits/reporter.rs`.
+- [x] **24.2** Implemented `DpoExporter`, `DpoPair`, `ShareGptDpoEntry`, and category-tailored gold-standard refusal fallbacks in `crates/redteamer-reporters/src/dpo.rs`:
+  - Automatically matches vulnerable elicited responses (`rejected`) with observed resistant responses from the model (`chosen`), or falls back to category-calibrated refusal phrasing.
+  - Generates deduplicated DPO preference pairs and ShareGPT conversation objects.
+  - Added unit tests for category refusal coverage, vulnerable/resistant pairing, findings fallback, and ShareGPT structure.
+- [x] **24.3** Registered `dpo` in `crates/redteamer-reporters/src/lib.rs` and updated `exporter_factory`.
+- [x] **24.4** Added `--format dpo` and `--export-dpo <PATH>` companion export flag in `crates/redteamer-cli/src/cmd/scan.rs`.
+- [x] **24.5** Updated CLI integration test suite in `crates/redteamer-cli/tests/cli_integration.rs` covering all 7 export formats and `--export-dpo`.
+- [x] **24.6** Full Workspace Verification:
+  - All 96 tests passing (`cargo test --workspace --offline` across all 8 crates, 8 integration suites, and 4 doc-tests).
+  - Clippy `-D warnings` 100% clean (0 warnings, 0 errors).
+  - `cargo fmt --all -- --check` 100% clean.
+  - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
+

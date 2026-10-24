@@ -55,7 +55,7 @@ fn list_probes_and_detectors_succeed() {
 }
 
 #[test]
-fn scan_all_six_formats_and_fail_on_exit_code() {
+fn scan_all_seven_formats_and_fail_on_exit_code() {
     for (fmt, expected_marker) in [
         ("json", "\"findings\""),
         ("jsonl", "\"probe_name\":\"llm01_prompt_injection\""),
@@ -63,6 +63,7 @@ fn scan_all_six_formats_and_fail_on_exit_code() {
         ("html", "<!DOCTYPE html>"),
         ("sarif", "\"version\": \"2.1.0\""),
         ("csv", "session_id,record_id,probe_name"),
+        ("dpo", "\"chosen\""),
     ] {
         let out = cli_bin()
             .args([
@@ -216,6 +217,43 @@ fn stream_jsonl_resume_and_finding_level_diff_exit_codes() {
     assert!(diff_improved.status.success());
     let diff_imp_stdout = String::from_utf8_lossy(&diff_improved.stdout);
     assert!(diff_imp_stdout.contains("## Resolved Vulnerabilities (96)"));
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn scan_with_export_dpo_writes_valid_dataset() {
+    let temp_dir = std::env::temp_dir().join(format!("redteamer_dpo_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).expect("failed to create temp test dir");
+
+    let dpo_file = temp_dir.join("dpo_export.json");
+    let out = cli_bin()
+        .args([
+            "scan",
+            "--target",
+            "mock",
+            "--probes",
+            "llm01_prompt_injection",
+            "--format",
+            "markdown",
+            "--export-dpo",
+            dpo_file.to_str().unwrap(),
+        ])
+        .output()
+        .expect("scan with export-dpo failed to run");
+
+    assert!(out.status.success());
+    assert!(dpo_file.exists(), "dpo_export.json was not created");
+
+    let content = fs::read_to_string(&dpo_file).expect("failed to read dpo export");
+    assert!(content.contains("\"prompt\""));
+    assert!(content.contains("\"chosen\""));
+    assert!(content.contains("\"rejected\""));
+
+    let pairs: Vec<serde_json::Value> =
+        serde_json::from_str(&content).expect("dpo export is not valid JSON");
+    assert!(!pairs.is_empty(), "dpo export must contain pairs");
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

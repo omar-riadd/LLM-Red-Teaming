@@ -16,6 +16,7 @@ pub enum ReportFormat {
     Html,
     Sarif,
     Csv,
+    Dpo,
 }
 
 impl fmt::Display for ReportFormat {
@@ -27,6 +28,7 @@ impl fmt::Display for ReportFormat {
             Self::Html => "html",
             Self::Sarif => "sarif",
             Self::Csv => "csv",
+            Self::Dpo => "dpo",
         };
         f.write_str(s)
     }

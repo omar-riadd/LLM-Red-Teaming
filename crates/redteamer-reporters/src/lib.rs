@@ -7,6 +7,7 @@
 //! the right exporter from CLI-level configuration.
 
 pub mod csv;
+pub mod dpo;
 pub mod html;
 pub mod markdown;
 pub mod owasp_mapper;
@@ -18,6 +19,7 @@ use redteamer_core::traits::reporter::{ReportContext, ReportExporter, ReportForm
 use std::path::PathBuf;
 
 pub use csv::CsvExporter;
+pub use dpo::{DpoExporter, DpoPair, ShareGptDpoEntry};
 pub use html::HtmlExporter;
 pub use markdown::MarkdownExporter;
 pub use owasp_mapper::CvssLlmComputer;
@@ -67,6 +69,7 @@ pub fn exporter_factory(format: ReportFormat, sink: OutputSink) -> Result<Box<dy
         }
         ReportFormat::Sarif => Ok(Box::new(SarifExporter::new(sink))),
         ReportFormat::Csv => Ok(Box::new(CsvExporter::new(sink))),
+        ReportFormat::Dpo => Ok(Box::new(DpoExporter::new(sink))),
     }
 }
 
@@ -150,6 +153,7 @@ mod tests {
             ),
             (ReportFormat::Sarif, "sarif", "\"locations\""),
             (ReportFormat::Csv, "csv", "session_id,record_id,probe_name"),
+            (ReportFormat::Dpo, "json", "\"chosen\""),
         ] {
             let path = tmp_dir.join(format!("report.{ext}"));
             let exporter = exporter_factory(fmt, OutputSink::File(path.clone())).unwrap();
