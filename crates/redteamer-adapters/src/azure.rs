@@ -107,15 +107,18 @@ impl AzureOpenAiAdapter {
     async fn complete(&self, body: &AzureChatRequest) -> Result<AdapterResponse> {
         self.limiter.lock().await.acquire().await;
 
-        let url = format!(
-            "{}/openai/deployments/{}/chat/completions?api-version={}",
-            self.endpoint, self.deployment, self.api_version
-        );
+        let url = build_azure_url(&self.endpoint, &self.deployment, &self.api_version);
 
-        let response = self
-            .client
-            .post(&url)
-            .header("api-key", &self.api_key)
+        let mut req = self.client.post(&url);
+        if let Some(token) = self.api_key.strip_prefix("Bearer ") {
+            req = req.bearer_auth(token);
+        } else if self.api_key.starts_with("eyJ") && self.api_key.contains('.') {
+            req = req.bearer_auth(&self.api_key);
+        } else {
+            req = req.header("api-key", &self.api_key);
+        }
+
+        let response = req
             .json(body)
             .send()
             .await
@@ -310,5 +313,68 @@ fn truncate(s: &str, max: usize) -> &str {
     match s.char_indices().nth(max) {
         Some((idx, _)) => &s[..idx],
         None => s,
+    }
+}
+
+pub(crate) fn build_azure_url(endpoint: &str, deployment: &str, api_version: &str) -> String {
+    let ep = endpoint.trim().trim_end_matches('/');
+    if ep.contains("/chat/completions") {
+        if ep.contains("api-version=") {
+            ep.to_string()
+        } else if ep.contains('?') {
+            format!("{ep}&api-version={api_version}")
+        } else {
+            format!("{ep}?api-version={api_version}")
+        }
+    } else if ep.contains("/deployments/") {
+        if ep.contains('?') {
+            let (base, query) = ep.split_once('?').unwrap_or((ep, ""));
+            format!("{base}/chat/completions?{query}")
+        } else {
+            format!("{ep}/chat/completions?api-version={api_version}")
+        }
+    } else {
+        format!("{ep}/openai/deployments/{deployment}/chat/completions?api-version={api_version}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_azure_url_handles_standard_and_proxy_paths() {
+        // Standard resource endpoint
+        let u1 = build_azure_url(
+            "https://my-resource.openai.azure.com",
+            "gpt-4o",
+            "2024-06-01",
+        );
+        assert_eq!(
+            u1,
+            "https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-06-01"
+        );
+
+        // Corporate APIM gateway with custom api-version query string already attached
+        let u2 = build_azure_url(
+            "https://apim.corp.com/v1/chat/completions?api-version=2024-10-21",
+            "gpt-4o",
+            "2024-06-01",
+        );
+        assert_eq!(
+            u2,
+            "https://apim.corp.com/v1/chat/completions?api-version=2024-10-21"
+        );
+
+        // Corporate deployment route
+        let u3 = build_azure_url(
+            "https://apim.corp.com/openai/deployments/corp-model",
+            "corp-model",
+            "2024-06-01",
+        );
+        assert_eq!(
+            u3,
+            "https://apim.corp.com/openai/deployments/corp-model/chat/completions?api-version=2024-06-01"
+        );
     }
 }
