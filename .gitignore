@@ -1,2 +1,36 @@
+# Rust build artifacts
 /target
+target/
+
+# Large model binaries
 *.onnx
+
+# Secrets & Environment variables
+.env
+.env.*
+*.env
+
+# Local reports & scan artifacts
+reports/
+*.jsonl
+*.pdf
+report.html
+report.json
+dpo_dataset.json
+checkpoint.jsonl
+shard*.jsonl
+full_cluster_report.pdf
+executive_report.pdf
+
+# Fuzzing build & corpus artifacts
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~

@@ -1,7 +1,7 @@
 # improve.md — Evolution & Future Roadmap for `llm-redteamer`
 
-> Status: **PHASES 0–27 COMPLETED & VERIFIED (v0.3, v0.4, v0.4.1 Hardened, Phase 23 MCP, Phase 24 DPO, Phase 25 Streaming, Phase 26 Executive PDF Exporter, Phase 27 Distributed Worker Pool & Multi-IP Proxy Rotation).**
-> Current Baseline: 115 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean.
+> Status: **PHASES 0–27 COMPLETED, VERIFIED & RELEASED v0.5.0 (FG1 Executive PDF Exporter, FG2 Distributed Worker Pool & Proxy Rotation, FG3 Streaming Early Termination, FG4 MCP Server Attacks, FG5 Automated DPO Exporter).**
+> Current Baseline: 115 workspace tests pass, clippy `-D warnings` clean, `cargo deny` clean, release tag `v0.5.0`.
 > Session rules active: read files in full (100% of lines), update `project-progress.md` after each task, verify with real commands, maintain offline builds.
 
 ---

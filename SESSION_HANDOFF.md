@@ -24,8 +24,10 @@
 - **Workspace Path**: `/home/omar/Projects/LLM-Red-Teaming`
 - **GitHub Repository**: `https://github.com/omar-riadd/LLM-Red-Teaming`
 - **Branch**: `main`
-- **Latest Commit**: `ea0a9a3` — `feat(reporters): implement Phase 26 native executive PDF exporter (FG1)`
+- **Latest Commit**: `39704e8` — `chore: release v0.5.0` (tagged `v0.5.0`)
 - **Previous Significant Commits**:
+  - `077755a` — `feat(adapters): implement Phase 27 distributed worker pool and multi-IP proxy rotation (FG2)`
+  - `ea0a9a3` — `feat(reporters): implement Phase 26 executive document exporter for PDF (FG1)`
   - `9b3ab42` — `docs: document MCP attacks, DPO export, and streaming in README and CHANGELOG`
   - `205eabe` — `feat(adapters): implement Phase 25 real-time streaming early termination (FG3)`
   - `6e7832a` — `feat(reporters): implement Phase 24 automated DPO / RLHF dataset exporter (FG5)`
@@ -42,7 +44,7 @@
   - `cargo clippy --workspace --all-targets --offline -- -D warnings` → **0 warnings, 0 errors**.
   - `cargo fmt --all -- --check` → **100% clean**.
   - `cargo deny --offline check` → **advisories ok, bans ok, licenses ok, sources ok**.
-- **Working Tree**: Contains Phase 27 changes ready for commit.
+- **Working Tree**: Clean (`v0.5.0` tagged).
 
 ---
 
@@ -163,11 +165,11 @@ cargo run --offline -p redteamer-cli -- scan --target mock --format markdown
 ## 6. How to Resume in the New Session
  
 When starting the next session:
-1. Confirm that `git status` is clean and all 115 workspace tests pass.
+1. Confirm that `git status` is clean, all 115 workspace tests pass, and the release tag `v0.5.0` is present.
 2. Review `improve.md` section 4 for completed enhancement gaps:
    - **`FG1`**: Executive Document Exporters (Native PDF) (Completed in Phase 26).
    - **`FG2`**: Distributed Worker Pool / Multi-IP Rotation (Completed in Phase 27).
    - **`FG3`**: Real-Time Streaming Early Termination (Completed in Phase 25).
    - **`FG4`**: Model Context Protocol (MCP) Server Attacks (Completed in Phase 23).
    - **`FG5`**: Automated DPO / RLHF Dataset Exporter (Completed in Phase 24).
-3. Ask the user which feature or roadmap item they would like to pursue next, or proceed with tagging and releasing `v0.5.0`.
+3. All 5 enhancement gaps (FG1–FG5) planned for v0.5 are fully implemented, verified, and released under tag `v0.5.0`. Ask the user which new roadmap features or areas of red-teaming they would like to explore next.

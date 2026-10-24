@@ -300,5 +300,27 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
   - `cargo fmt --all -- --check` 100% clean.
   - `cargo deny --offline check` clean (advisories ok, bans ok, licenses ok, sources ok).
 
+---
+
+## Release v0.5.0 — Enterprise LLM Red-Teaming (FG1–FG5)
+- [x] **28.1** Workspace Version Bump:
+  - Updated root `Cargo.toml` `[workspace.package] version = "0.5.0"` (propagated to all 8 workspace crates via `version.workspace = true`).
+  - Synchronized `Cargo.lock` with workspace version 0.5.0.
+- [x] **28.2** Documentation & Changelog Update:
+  - Updated `CHANGELOG.md` formalizing release `[0.5.0] - 2026-10-25` covering FG1–FG5:
+    - FG1: Executive Document Exporters (Native PDF 1.4 Deliverables with CISO scorecard, OWASP matrix, PoC findings, roadmap, pagination).
+    - FG2: Distributed Worker Pool & Multi-IP Proxy Rotation Engine (`ProxyPool`, `RotatingAdapter`, round-robin/random/least-loaded/failover, circuit breaker, modulo worker sharding, multi-checkpoint resume).
+    - FG3: Real-Time Streaming Early Termination (SSE/JSON chunk streaming, early abort on canary exfiltration).
+    - FG4: Model Context Protocol (MCP) Server Attacks (HTTP & Stdio transports, JSON-RPC 2.0 handshake, tools/list, tools/call).
+    - FG5: Automated DPO / RLHF Dataset Exporter (`DpoExporter`, ShareGPT preference format).
+  - Synchronized `SESSION_HANDOFF.md`, `README.md`, `project-progress.md`, and `improve.md`.
+- [x] **28.3** Full Workspace Pre-Release Verification:
+  - `cargo fmt --all -- --check` (clean).
+  - `cargo clippy --workspace --all-targets --offline -- -D warnings` (clean, 0 warnings).
+  - `cargo test --workspace --offline` (115 passed; 0 failed; 0 ignored).
+  - `cargo deny --offline check` (clean).
+- [x] **28.4** Release Tagging:
+  - Tagged `v0.5.0` with annotated release message.
+
 
 
