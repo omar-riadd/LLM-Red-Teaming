@@ -20,3 +20,6 @@ async-trait.workspace = true
 tokio.workspace = true
 ort.workspace = true
 tokenizers.workspace = true
+
+[dev-dependencies]
+redteamer-adapters.workspace = true

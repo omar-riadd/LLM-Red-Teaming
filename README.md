@@ -107,10 +107,18 @@ cargo run -p redteamer-cli -- scan --target mock --semantic-model builtin --sema
 ## Development & Verification
 
 ```bash
+# Code quality, clippy, and full workspace test suite (including proptests & judge evals)
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 cargo deny check
+
+# Property testing (proptest for mutation invariants)
+cargo test -p redteamer-payload --test mutation_proptest
+
+# Fuzz testing (requires nightly and cargo-fuzz)
+# cargo +nightly fuzz run probe_yaml_loader
+# cargo +nightly fuzz run mutation_pipeline
 ```
 
 ## License

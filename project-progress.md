@@ -107,9 +107,9 @@
 - [x] **14.4** Added offline semantic detector integration test `crates/redteamer-detectors/tests/semantic_offline.rs` verifying refusal and jailbreak detection against bundled ONNX weights.
 
 ### Phase 15 — Property Tests, Fuzz Targets, Judge Eval (GA5, GA11, GA14)
-- [ ] **15.1** `proptest` for `MutationPipeline` (3 properties)
-- [ ] **15.2** `cargo fuzz` targets for YAML loader and mutation pipeline
-- [ ] **15.3** `LlmJudgeDetector` mock accuracy test
+- [x] **15.1** Added `proptest` dev-dependency and 4 property tests in `crates/redteamer-payload/tests/mutation_proptest.rs` (non-empty iteration, non-empty mutation invariants, Base64 roundtrip, reverse inversion).
+- [x] **15.2** Added `fuzz/` directory with `probe_yaml_loader` and `mutation_pipeline` fuzz targets (workspace excluded).
+- [x] **15.3** Added mock HTTP server integration test in `crates/redteamer-detectors/tests/judge_mock.rs` validating `LlmJudgeDetector` accuracy, refusal detection, markdown/embedded JSON parsing, and malformed JSON error handling.
 
 ### Phase 16 — CLI Module Split & Interactive HTML Report (GA6, GA10)
 - [ ] **16.1** Split `main.rs` into `cmd/{scan,diff,list,health}.rs`
