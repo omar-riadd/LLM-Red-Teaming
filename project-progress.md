@@ -132,7 +132,7 @@ All 7 phases (12–18) and all 14 improvement gaps (`GA1`–`GA14`) from `PLAN_v
 ## Phase 19 — Template Adaptive Coverage & Semantic Embedding Optimization
 - [x] **19.1** Added `adaptive_goals` and `max_adaptive_turns: 3` to all remaining 9 probe templates (`llm02_secrets`, `llm02_rag_injection`, `llm03`, `llm04`, `llm05`, `llm06`, `llm08`, `llm09`, `llm10`). 100% of the 11 OWASP templates now participate in PAIR tree search adaptive attacks.
 - [x] **19.2** Optimized `SemanticDetector` to precompute reference embeddings at instantiation (`SemanticDetector::new()` / `with_references()`), eliminating 30+ redundant ONNX inferences per evaluated response and yielding a ~30x evaluation speedup.
-- [x] **19.3** Expanded `default_semantic_references()` from 7 to 35 calibrated phrases covering all 10 OWASP categories and nuanced refusal phrasing.
+- [x] **19.3** Expanded `default_semantic_references()` to 52 calibrated phrases (50+ phrases) covering all 10 OWASP categories and nuanced refusal phrasing per roadmap specification.
 - [x] **19.4** Wired `with_override` in `CvssLlmComputer` to CVSS v4.0 Threat Metrics (`/E:A` for $\ge 1.1$, `/E:P` for $\le 0.9$) and added unit test. Total workspace test count: 76 passing.
 
 ---
