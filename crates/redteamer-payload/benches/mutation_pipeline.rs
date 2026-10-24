@@ -43,18 +43,17 @@ fn bench_individual_mutations(c: &mut Criterion) {
     for (name, mutation) in [
         ("base64", Mutation::Base64),
         ("rot13", Mutation::Rot13),
-        ("wrap", Mutation::Wrap {
-            prefix: "Prefix. ".to_owned(),
-            suffix: String::new(),
-        }),
-    ] {
-        group.bench_with_input(
-            format!("{name}/512b_seed"),
-            &SEED.repeat(8),
-            |b, seed| {
-                b.iter(|| black_box(mutation.apply(black_box(seed))))
+        (
+            "wrap",
+            Mutation::Wrap {
+                prefix: "Prefix. ".to_owned(),
+                suffix: String::new(),
             },
-        );
+        ),
+    ] {
+        group.bench_with_input(format!("{name}/512b_seed"), &SEED.repeat(8), |b, seed| {
+            b.iter(|| black_box(mutation.apply(black_box(seed))))
+        });
     }
     group.finish();
 }

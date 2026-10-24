@@ -11,8 +11,7 @@ pub mod detector;
 pub mod probe;
 pub mod reporter;
 
-pub use adapter::{ChatMessage, GenerationOptions, Role, TargetAdapter};
+pub use adapter::{ChatMessage, GenerationOptions, Role, TargetAdapter, ToolCall, ToolDefinition};
 pub use detector::{DetectContext, Detector};
 pub use probe::Probe;
 pub use reporter::{ReportContext, ReportExporter, ReportFormat};
-

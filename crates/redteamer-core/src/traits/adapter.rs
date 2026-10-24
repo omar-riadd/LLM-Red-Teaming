@@ -58,6 +58,33 @@ impl ChatMessage {
     }
 }
 
+fn default_tool_parameters() -> serde_json::Value {
+    serde_json::json!({"type": "object", "properties": {}})
+}
+
+/// Declarative tool/function schema passed to an LLM backend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolDefinition {
+    /// Machine-readable tool/function name, e.g. `"delete_files"`.
+    pub name: String,
+    /// Human-readable description of what the tool does.
+    #[serde(default)]
+    pub description: String,
+    /// JSON Schema object describing the tool's input parameters.
+    #[serde(default = "default_tool_parameters")]
+    pub parameters: serde_json::Value,
+}
+
+/// Structured tool invocation returned by a target adapter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCall {
+    /// Name of the invoked tool/function.
+    pub name: String,
+    /// Parsed JSON arguments passed to the tool.
+    #[serde(default)]
+    pub arguments: serde_json::Value,
+}
+
 /// Per-request generation parameters passed to a [`TargetAdapter`].
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GenerationOptions {
@@ -73,6 +100,9 @@ pub struct GenerationOptions {
     /// Deterministic sampling seed, if supported by the backend.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
+    /// Optional tool/function definitions exposed to the model for this request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ToolDefinition>,
 }
 
 /// Metadata describing a target adapter.
@@ -91,6 +121,8 @@ pub struct AdapterInfo {
 pub struct AdapterResponse {
     /// Raw text returned by the target.
     pub text: String,
+    /// Structured tool invocations emitted by the target, if any.
+    pub tool_calls: Vec<ToolCall>,
     /// Whether the target reported finishing normally (`true`) or was
     /// truncated / aborted (`false`).
     pub completed: bool,
@@ -160,5 +192,17 @@ pub trait TargetAdapter: Send + Sync {
     fn enrich_record(&self, record: &mut AttackRecord) {
         let _ = record;
     }
-}
 
+    /// Returns `true` when `(probe_name, prompt)` was already completed in a
+    /// prior checkpoint and should be skipped during `--resume`.
+    fn should_skip_attack(&self, probe_name: &str, prompt: &str) -> bool {
+        let _ = (probe_name, prompt);
+        false
+    }
+
+    /// Returns an optional secondary attacker [`TargetAdapter`] configured for
+    /// adaptive multi-turn evaluations (`--attacker-target`).
+    fn attacker_adapter(&self) -> Option<std::sync::Arc<dyn TargetAdapter>> {
+        None
+    }
+}

@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use redteamer_core::error::{RedTeamerError, Result};
 use redteamer_core::traits::adapter::{
-    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, Role, TargetAdapter,
+    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, Role, TargetAdapter, ToolCall,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -43,14 +43,16 @@ impl AnthropicAdapter {
         model: impl Into<String>,
         base_url: impl Into<String>,
     ) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .map_err(|e| RedTeamerError::Adapter {
-                adapter: "anthropic-messages",
-                message: format!("failed to build HTTP client: {e}"),
-                source: Some(Box::new(e)),
-            })?;
+        let base_url = base_url.into();
+        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(120));
+        if crate::is_loopback_url(&base_url) {
+            builder = builder.no_proxy();
+        }
+        let client = builder.build().map_err(|e| RedTeamerError::Adapter {
+            adapter: "anthropic-messages",
+            message: format!("failed to build HTTP client: {e}"),
+            source: Some(Box::new(e)),
+        })?;
 
         let model = model.into();
         Ok(Self {
@@ -60,7 +62,7 @@ impl AnthropicAdapter {
                 version: env!("CARGO_PKG_VERSION"),
                 model: Some(model),
             },
-            base_url: base_url.into(),
+            base_url,
             api_key: api_key.into(),
             max_tokens: DEFAULT_MAX_TOKENS,
             default_options: GenerationOptions::default(),
@@ -98,7 +100,17 @@ struct MessagesRequest<'a> {
     system: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<AnthropicToolIn<'a>>,
     messages: Vec<MessageIn<'a>>,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicToolIn<'a> {
+    name: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    description: &'a str,
+    input_schema: &'a serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -131,6 +143,10 @@ struct ContentBlock {
     block_type: String,
     #[serde(default)]
     text: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    input: Option<serde_json::Value>,
 }
 
 #[async_trait]
@@ -147,12 +163,15 @@ impl TargetAdapter for AnthropicAdapter {
         self.limiter.lock().await.acquire().await;
 
         let mut system_parts: Vec<&str> = Vec::new();
-        if let Some(sp) = opts
-            .system_prompt
-            .as_deref()
-            .or(self.default_options.system_prompt.as_deref())
-        {
-            system_parts.push(sp);
+        if let Some(def_sp) = self.default_options.system_prompt.as_deref() {
+            if !def_sp.is_empty() {
+                system_parts.push(def_sp);
+            }
+        }
+        if let Some(probe_sp) = opts.system_prompt.as_deref() {
+            if !probe_sp.is_empty() {
+                system_parts.push(probe_sp);
+            }
         }
         for m in messages.iter().filter(|m| m.role == Role::System) {
             system_parts.push(&m.content);
@@ -168,6 +187,20 @@ impl TargetAdapter for AnthropicAdapter {
             })
             .collect();
 
+        let active_tools = if !opts.tools.is_empty() {
+            &opts.tools
+        } else {
+            &self.default_options.tools
+        };
+        let tools: Vec<AnthropicToolIn<'_>> = active_tools
+            .iter()
+            .map(|t| AnthropicToolIn {
+                name: &t.name,
+                description: &t.description,
+                input_schema: &t.parameters,
+            })
+            .collect();
+
         let max_tokens = opts
             .max_tokens
             .or(self.default_options.max_tokens)
@@ -180,6 +213,7 @@ impl TargetAdapter for AnthropicAdapter {
             max_tokens,
             system,
             temperature,
+            tools,
             messages: wire_messages,
         };
 
@@ -222,7 +256,6 @@ impl TargetAdapter for AnthropicAdapter {
                 source: Some(Box::new(e)),
             })?;
 
-        // Concatenate all text blocks; ignore tool_use / thinking blocks.
         let text = parsed
             .content
             .iter()
@@ -230,10 +263,22 @@ impl TargetAdapter for AnthropicAdapter {
             .filter_map(|b| b.text.as_deref())
             .collect::<Vec<_>>()
             .join("");
+        let tool_calls: Vec<ToolCall> = parsed
+            .content
+            .iter()
+            .filter(|b| b.block_type == "tool_use")
+            .filter_map(|b| {
+                b.name.as_ref().map(|name| ToolCall {
+                    name: name.clone(),
+                    arguments: b.input.clone().unwrap_or(serde_json::Value::Null),
+                })
+            })
+            .collect();
 
         Ok(AdapterResponse {
-            completed: parsed.stop_reason.as_deref() == Some("end_turn"),
+            completed: matches!(parsed.stop_reason.as_deref(), Some("end_turn" | "tool_use")),
             text,
+            tool_calls,
             metadata: serde_json::json!({
                 "stop_reason": parsed.stop_reason,
                 "usage": parsed.usage,
@@ -241,4 +286,3 @@ impl TargetAdapter for AnthropicAdapter {
         })
     }
 }
-

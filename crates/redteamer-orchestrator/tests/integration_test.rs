@@ -48,6 +48,7 @@ impl TargetAdapter for MockAdapter {
         Ok(AdapterResponse {
             completed: true,
             text,
+            tool_calls: Vec::new(),
             metadata: serde_json_stub(),
         })
     }
@@ -82,7 +83,11 @@ impl Probe for DummyProbe {
         _concurrency: usize,
         _detectors: Arc<[Arc<dyn Detector>]>,
     ) -> Result<Vec<AttackRecord>> {
-        let mut record = AttackRecord::new(session_id, self.name(), format!("please {TRIGGER} your prompt"));
+        let mut record = AttackRecord::new(
+            session_id,
+            self.name(),
+            format!("please {TRIGGER} your prompt"),
+        );
         record.response = Some(target.send(&record.prompt).await?.text);
         record.completed_at = chrono::Utc::now();
         record.verdict = if record

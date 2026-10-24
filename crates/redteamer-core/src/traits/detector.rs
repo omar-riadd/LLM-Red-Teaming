@@ -1,6 +1,7 @@
 // crates/redteamer-core/src/traits/detector.rs
 
 use crate::error::Result;
+use crate::traits::adapter::ToolCall;
 use crate::types::{DetectionOutcome, OwaspCategory};
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +15,9 @@ pub struct DetectContext {
     pub prompt: String,
     /// The raw response returned by the target, if any.
     pub response: Option<String>,
+    /// Structured tool invocations returned by the target, if any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
     /// Optional canary token injected into the target's system prompt.
     pub canary: Option<String>,
     /// Primary OWASP category being probed.
@@ -29,10 +33,17 @@ impl DetectContext {
         Self {
             prompt: prompt.into(),
             response: response.map(Into::into),
+            tool_calls: Vec::new(),
             canary: None,
             category: OwaspCategory::PromptInjection,
             probe_goal: String::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_tool_calls(mut self, tool_calls: Vec<ToolCall>) -> Self {
+        self.tool_calls = tool_calls;
+        self
     }
 
     #[must_use]
@@ -79,4 +90,3 @@ pub trait Detector: Send + Sync {
     /// these into a negative outcome rather than crashing the run).
     async fn detect(&self, ctx: &DetectContext) -> Result<DetectionOutcome>;
 }
-

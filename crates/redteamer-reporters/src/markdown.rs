@@ -29,7 +29,11 @@ impl MarkdownExporter {
 
     #[must_use]
     pub fn render(&self, ctx: &ReportContext) -> String {
-        let vulnerable = ctx.findings.iter().filter(|f| f.verdict.is_vulnerable()).count();
+        let vulnerable = ctx
+            .findings
+            .iter()
+            .filter(|f| f.verdict.is_vulnerable())
+            .count();
         let bd = &ctx.severity_breakdown;
         let highest = bd
             .highest_score
@@ -38,7 +42,7 @@ impl MarkdownExporter {
         let mut out = String::with_capacity(1024 + ctx.findings.len() * 160);
         out.push_str("# LLM Red-Teaming Report\n\n");
         out.push_str(&format!(
-            "- **Session:** `{}`\n- **Target:** `{}` (model: `{}`)\n- **Records Evaluated:** {}\n- **Vulnerable Findings:** {vulnerable}\n- **CVSS v4.0 Highest:** {highest} (Critical: {}, High: {}, Medium: {}, Low: {})\n- **Generated:** {}\n\n",
+            "- **Session:** `{}`\n- **Target:** `{}` (model: `{}`)\n- **Records Evaluated:** {}\n- **Vulnerable Findings:** {vulnerable}\n- **CVSS v4.0 Highest:** {highest} (Critical: {}, High: {}, Medium: {}, Low: {})\n- **Tokens:** {} prompt / {} completion\n- **Latency:** p50 {} ms / p95 {} ms\n- **Generated:** {}\n\n",
             ctx.session_id,
             ctx.target_name,
             ctx.target_model.as_deref().unwrap_or("default"),
@@ -47,12 +51,18 @@ impl MarkdownExporter {
             bd.high,
             bd.medium,
             bd.low,
+            ctx.total_prompt_tokens,
+            ctx.total_completion_tokens,
+            ctx.latency_p50_ms,
+            ctx.latency_p95_ms,
             chrono::Utc::now().to_rfc3339(),
         ));
 
         if !ctx.probe_summaries.is_empty() {
             out.push_str("## Per-Probe Attack Success Rate (ASR)\n\n");
-            out.push_str("| Probe | OWASP | Total | Vulnerable | Partial | Resistant | Errors | ASR |\n");
+            out.push_str(
+                "| Probe | OWASP | Total | Vulnerable | Partial | Resistant | Errors | ASR |\n",
+            );
             out.push_str("|---|---|---:|---:|---:|---:|---:|---:|\n");
             for s in &ctx.probe_summaries {
                 out.push_str(&format!(
@@ -140,4 +150,3 @@ impl ReportExporter for MarkdownExporter {
         Ok(ctx.findings.len())
     }
 }
-

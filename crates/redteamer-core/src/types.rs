@@ -432,6 +432,21 @@ impl fmt::Display for MutationType {
     }
 }
 
+/// Normalized token usage extracted from provider-specific adapter metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct TokenUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+}
+
+impl TokenUsage {
+    /// Total tokens (`prompt_tokens + completion_tokens`).
+    #[must_use]
+    pub const fn total_tokens(&self) -> u64 {
+        self.prompt_tokens.saturating_add(self.completion_tokens)
+    }
+}
+
 /// A complete audit-trail entry for one executed attack attempt.
 ///
 /// This is the atomic unit of evidence: probes emit one record per
@@ -451,6 +466,12 @@ pub struct AttackRecord {
     /// The raw response returned by the target adapter, if any.
     #[serde(default)]
     pub response: Option<String>,
+    /// Structured tool calls emitted by the target adapter, if any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<crate::traits::adapter::ToolCall>,
+    /// Error message when `verdict == Verdict::Error`, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
     /// Zero or more detector outcomes for `(prompt, response)`.
     pub detections: Vec<DetectionOutcome>,
     /// Final rolled-up verdict for this attempt.
@@ -475,6 +496,8 @@ impl AttackRecord {
             mutation_type: MutationType::None,
             prompt: prompt.into(),
             response: None,
+            tool_calls: Vec::new(),
+            error: None,
             detections: Vec::new(),
             verdict: Verdict::Error,
             started_at: now,
@@ -487,6 +510,52 @@ impl AttackRecord {
     #[must_use]
     pub fn duration_ms(&self) -> i64 {
         (self.completed_at - self.started_at).num_milliseconds()
+    }
+
+    /// Extracts normalized [`TokenUsage`] from provider metadata (OpenAI, Anthropic, or Ollama), if present.
+    #[must_use]
+    pub fn token_usage(&self) -> Option<TokenUsage> {
+        let meta = self.metadata.as_ref()?;
+        // 1. OpenAI schema: {"prompt_tokens": u64, "completion_tokens": u64}
+        if let (Some(p), Some(c)) = (
+            meta.get("prompt_tokens")
+                .and_then(serde_json::Value::as_u64),
+            meta.get("completion_tokens")
+                .and_then(serde_json::Value::as_u64),
+        ) {
+            return Some(TokenUsage {
+                prompt_tokens: p,
+                completion_tokens: c,
+            });
+        }
+        // 2. Anthropic schema: {"usage": {"input_tokens": u64, "output_tokens": u64}}
+        if let Some(usage) = meta.get("usage") {
+            if let (Some(p), Some(c)) = (
+                usage
+                    .get("input_tokens")
+                    .and_then(serde_json::Value::as_u64),
+                usage
+                    .get("output_tokens")
+                    .and_then(serde_json::Value::as_u64),
+            ) {
+                return Some(TokenUsage {
+                    prompt_tokens: p,
+                    completion_tokens: c,
+                });
+            }
+        }
+        // 3. Ollama schema: {"prompt_eval_count": u64, "eval_count": u64}
+        let prompt_eval = meta
+            .get("prompt_eval_count")
+            .and_then(serde_json::Value::as_u64);
+        let eval = meta.get("eval_count").and_then(serde_json::Value::as_u64);
+        if prompt_eval.is_some() || eval.is_some() {
+            return Some(TokenUsage {
+                prompt_tokens: prompt_eval.unwrap_or(0),
+                completion_tokens: eval.unwrap_or(0),
+            });
+        }
+        None
     }
 }
 
@@ -550,5 +619,43 @@ mod tests {
     fn cvss_invalid_returns_zero() {
         let v = CvssVector::new("not-a-vector");
         assert_eq!(v.score(), 0.0);
+    }
+
+    #[test]
+    fn token_usage_parses_openai_anthropic_and_ollama_metadata() {
+        let mut rec = AttackRecord::new(Uuid::new_v4(), "p", "prompt");
+        assert_eq!(rec.token_usage(), None);
+
+        rec.metadata = Some(serde_json::json!({"prompt_tokens": 42, "completion_tokens": 100}));
+        let u1 = rec.token_usage().unwrap();
+        assert_eq!(
+            u1,
+            TokenUsage {
+                prompt_tokens: 42,
+                completion_tokens: 100
+            }
+        );
+        assert_eq!(u1.total_tokens(), 142);
+
+        rec.metadata = Some(serde_json::json!({
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 15, "output_tokens": 85}
+        }));
+        assert_eq!(
+            rec.token_usage(),
+            Some(TokenUsage {
+                prompt_tokens: 15,
+                completion_tokens: 85
+            })
+        );
+
+        rec.metadata = Some(serde_json::json!({"prompt_eval_count": 30, "eval_count": 70}));
+        assert_eq!(
+            rec.token_usage(),
+            Some(TokenUsage {
+                prompt_tokens: 30,
+                completion_tokens: 70
+            })
+        );
     }
 }

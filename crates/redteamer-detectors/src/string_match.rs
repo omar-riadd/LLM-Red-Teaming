@@ -56,8 +56,13 @@ impl StringMatchDetector {
                 "StringMatchDetector requires at least one needle".into(),
             ));
         }
-        let normalize =
-            |s: &str| if case_sensitive { s.to_owned() } else { s.to_lowercase() };
+        let normalize = |s: &str| {
+            if case_sensitive {
+                s.to_owned()
+            } else {
+                s.to_lowercase()
+            }
+        };
         let finders = needles
             .iter()
             .map(|n| memmem::Finder::new(normalize(n).leak()))
@@ -122,9 +127,12 @@ impl Detector for StringMatchDetector {
             detector_name: self.name.clone(),
             matched: !hits.is_empty(),
             polarity: self.polarity,
-            confidence: if hits.is_empty() { 1.0 } else { self.confidence },
+            confidence: if hits.is_empty() {
+                1.0
+            } else {
+                self.confidence
+            },
             rationale: (!hits.is_empty()).then(|| format!("matched: {}", hits.join(", "))),
         })
     }
 }
-

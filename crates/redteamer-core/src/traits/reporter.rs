@@ -43,6 +43,14 @@ pub struct ReportContext {
     pub probe_summaries: Vec<ProbeSummary>,
     pub findings: Vec<Finding>,
     pub records: Vec<AttackRecord>,
+    #[serde(default)]
+    pub total_prompt_tokens: u64,
+    #[serde(default)]
+    pub total_completion_tokens: u64,
+    #[serde(default)]
+    pub latency_p50_ms: u64,
+    #[serde(default)]
+    pub latency_p95_ms: u64,
 }
 
 impl ReportContext {
@@ -57,6 +65,10 @@ impl ReportContext {
             probe_summaries: Vec::new(),
             findings,
             records: Vec::new(),
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
+            latency_p50_ms: 0,
+            latency_p95_ms: 0,
         }
     }
 }
@@ -78,4 +90,3 @@ pub trait ReportExporter: Send + Sync {
     /// serialization failure.
     async fn export(&self, ctx: &ReportContext) -> Result<usize>;
 }
-

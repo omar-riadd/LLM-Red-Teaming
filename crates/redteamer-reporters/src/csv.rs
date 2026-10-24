@@ -28,7 +28,7 @@ impl CsvExporter {
 
         let mut out = String::with_capacity(256 + ctx.records.len() * 192);
         out.push_str(
-            "session_id,record_id,probe_name,owasp_category,mutation_type,verdict,cvss_score,cvss_severity,duration_ms,prompt,response\n",
+            "session_id,record_id,probe_name,owasp_category,mutation_type,verdict,cvss_score,cvss_severity,duration_ms,prompt,response,error\n",
         );
 
         for rec in &ctx.records {
@@ -40,7 +40,8 @@ impl CsvExporter {
                 let vec = computer.compute_for_mutation(category, rec.mutation_type);
                 (
                     format!("{:.1}", vec.score()),
-                    vec.severity().map_or_else(|| "None".to_owned(), |s| s.to_string()),
+                    vec.severity()
+                        .map_or_else(|| "None".to_owned(), |s| s.to_string()),
                 )
             } else {
                 ("0.0".to_owned(), "None".to_owned())
@@ -61,6 +62,7 @@ impl CsvExporter {
                 duration_ms.to_string(),
                 rec.prompt.clone(),
                 rec.response.clone().unwrap_or_default(),
+                rec.error.clone().unwrap_or_default(),
             ];
 
             let line = cols

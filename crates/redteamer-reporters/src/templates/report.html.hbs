@@ -21,6 +21,7 @@
   <div class="meta">
     <p><strong>Session:</strong> <code>{{session_id}}</code> | <strong>Target:</strong> <code>{{target_name}}</code> (model: <code>{{target_model}}</code>) | <strong>Generated:</strong> {{generated_at}}</p>
     <p><strong>Records Evaluated:</strong> {{summary.total_records}} | <strong>Vulnerable Findings:</strong> {{summary.total_findings}} | <strong>Highest CVSS v4.0:</strong> {{summary.highest_score}} (Critical: {{summary.critical}}, High: {{summary.high}}, Medium: {{summary.medium}}, Low: {{summary.low}})</p>
+    <p><strong>Tokens:</strong> {{summary.total_prompt_tokens}} prompt / {{summary.total_completion_tokens}} completion | <strong>Latency:</strong> p50 {{summary.latency_p50_ms}} ms / p95 {{summary.latency_p95_ms}} ms</p>
   </div>
 
   <h2>Per-Probe Attack Success Rate (ASR)</h2>

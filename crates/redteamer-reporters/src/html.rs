@@ -43,6 +43,10 @@ impl HtmlExporter {
                 "medium": ctx.severity_breakdown.medium,
                 "low": ctx.severity_breakdown.low,
                 "highest_score": ctx.severity_breakdown.highest_score.map_or_else(|| "0.0".into(), |s| format!("{s:.1}")),
+                "total_prompt_tokens": ctx.total_prompt_tokens,
+                "total_completion_tokens": ctx.total_completion_tokens,
+                "latency_p50_ms": ctx.latency_p50_ms,
+                "latency_p95_ms": ctx.latency_p95_ms,
             },
             "probe_summaries": ctx.probe_summaries.iter().map(|s| json!({
                 "probe_name": s.probe_name,
@@ -102,4 +106,3 @@ impl ReportExporter for HtmlExporter {
         Ok(ctx.findings.len())
     }
 }
-

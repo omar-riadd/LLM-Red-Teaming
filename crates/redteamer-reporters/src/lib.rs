@@ -57,10 +57,7 @@ impl OutputSink {
 ///
 /// # Errors
 /// Returns [`RedTeamerError::Report`] if the HTML template fails to compile.
-pub fn exporter_factory(
-    format: ReportFormat,
-    sink: OutputSink,
-) -> Result<Box<dyn ReportExporter>> {
+pub fn exporter_factory(format: ReportFormat, sink: OutputSink) -> Result<Box<dyn ReportExporter>> {
     match format {
         ReportFormat::Json => Ok(Box::new(JsonExporter { sink })),
         ReportFormat::Jsonl => Ok(Box::new(JsonlExporter { sink })),
@@ -125,20 +122,15 @@ mod tests {
     #[tokio::test]
     async fn all_six_exporters_render_valid_artifacts() {
         let session_id = Uuid::new_v4();
-        let mut rec = AttackRecord::new(session_id, "llm01_prompt_injection", "Ignore instructions");
+        let mut rec =
+            AttackRecord::new(session_id, "llm01_prompt_injection", "Ignore instructions");
         rec.response = Some("I am DAN".into());
         rec.verdict = Verdict::Vulnerable;
         let map = HashMap::from([(
             "llm01_prompt_injection".to_owned(),
             OwaspCategory::PromptInjection,
         )]);
-        let ctx = build_report_context(
-            session_id,
-            "mock",
-            Some("mock-v2".into()),
-            vec![rec],
-            &map,
-        );
+        let ctx = build_report_context(session_id, "mock", Some("mock-v2".into()), vec![rec], &map);
 
         let tmp_dir = std::env::temp_dir().join(format!("redteamer_test_{session_id}"));
         std::fs::create_dir_all(&tmp_dir).unwrap();
@@ -146,8 +138,16 @@ mod tests {
         for (fmt, ext, expected_substr) in [
             (ReportFormat::Json, "json", "\"probe_summaries\""),
             (ReportFormat::Jsonl, "jsonl", "\"llm01_prompt_injection\""),
-            (ReportFormat::Markdown, "md", "## Per-Probe Attack Success Rate (ASR)"),
-            (ReportFormat::Html, "html", "Per-Probe Attack Success Rate (ASR)"),
+            (
+                ReportFormat::Markdown,
+                "md",
+                "## Per-Probe Attack Success Rate (ASR)",
+            ),
+            (
+                ReportFormat::Html,
+                "html",
+                "Per-Probe Attack Success Rate (ASR)",
+            ),
             (ReportFormat::Sarif, "sarif", "\"locations\""),
             (ReportFormat::Csv, "csv", "session_id,record_id,probe_name"),
         ] {
@@ -166,4 +166,3 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }
-

@@ -8,4 +8,3 @@ pub mod template;
 
 pub use mutation::{GeneratedPayload, Mutation, MutationPipeline};
 pub use template::{InlineDetectorRule, ProbeScope, ProbeTemplate};
-

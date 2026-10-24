@@ -1,7 +1,7 @@
+use redteamer_core::error::RedTeamerError;
 use redteamer_core::traits::adapter::{
     AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, TargetAdapter,
 };
-use redteamer_core::error::RedTeamerError;
 use redteamer_core::types::OwaspCategory;
 use std::sync::Arc;
 

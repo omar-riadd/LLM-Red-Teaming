@@ -1659,7 +1659,7 @@ dependencies = [
 
 [[package]]
 name = "redteamer-adapters"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "redteamer-core",
@@ -1671,7 +1671,7 @@ dependencies = [
 
 [[package]]
 name = "redteamer-cli"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -1688,7 +1688,7 @@ dependencies = [
 
 [[package]]
 name = "redteamer-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1702,9 +1702,10 @@ dependencies = [
 
 [[package]]
 name = "redteamer-detectors"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "memchr",
  "ort",
  "redteamer-core",
@@ -1717,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "redteamer-orchestrator"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1729,7 +1730,7 @@ dependencies = [
 
 [[package]]
 name = "redteamer-payload"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "criterion",
@@ -1741,7 +1742,7 @@ dependencies = [
 
 [[package]]
 name = "redteamer-probes"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1755,7 +1756,7 @@ dependencies = [
 
 [[package]]
 name = "redteamer-reporters"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",

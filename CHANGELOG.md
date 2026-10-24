@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-10-24
+
+### Added
+
+- **Protocol-Level Tool Calling (`G10`)**: Added `ToolDefinition`, `ToolCall`, `InlineDetectorRule::ToolCallMatch`, and `ToolCallDetector` across `OpenAiAdapter` (`tools` / `tool_calls`), `AnthropicAdapter` (`input_schema` / `tool_use`), and `OllamaAdapter` (`/api/chat` `tools` / `tool_calls`), enabling protocol-level tool invocation detection in `llm06_excessive_agency`.
+- **Response De-Obfuscation & Labeled Evaluation Suite (`G7`, `G8`)**: Added pre-detection response normalizer (`normalize_response_variants`) decoding zero-width characters, Base64 payloads, hex strings, and ROT13 text before running detectors, backed by a 55-case labeled evaluation benchmark (`detection_eval.rs`) across `LLM01`–`LLM10` achieving `100%` precision and recall.
+- **Live JSONL Streaming & Checkpoint Resume (`G12`)**: Added `--stream-jsonl <PATH>` and `--resume <PATH>` CLI flags plus `ScanBuilder::on_record_complete` and `ScanBuilder::resume_records` for crash-safe campaign checkpointing and resume.
+- **Adaptive Multi-Turn Crescendo Evaluations (`G13`)**: Added `adaptive_goals` and `max_adaptive_turns` to `ProbeTemplate` alongside `--attacker-target` and `--attacker-model` CLI flags to run iterative multi-turn evaluations with early exit on `Verdict::Vulnerable`.
+- **Global Concurrency Cap, Typed Telemetry & Deterministic Ordering (`G1`, `G2`, `G3`, `G4`)**: Added campaign-wide semaphore throttling, per-request progress callbacks, preserved adapter error reasons (`AttackRecord::error`), typed `TokenUsage` + latency `p50`/`p95` metrics on `ReportContext`, and deterministic record sorting.
+- **CLI Semantic Detector Flags, Finding-Level Diff & Binary Integration Tests (`G9`, `G11`, `G14`)**: Added `--semantic-model`, `--semantic-tokenizer`, and `--semantic-threshold` CLI flags, `New Vulnerabilities` and `Resolved Vulnerabilities` tables in `llm-redteamer diff`, `tokio::net::TcpListener` HTTP mock adapter tests, and `CARGO_BIN_EXE_llm-redteamer` binary integration tests.
+
+### Fixed
+
+- **CLI `with_base_url` Argument Order (`G15`)**: Fixed transposed `(api_key, model, base_url)` arguments in `build_adapter`.
+- **System Prompt Merging (`G16`)**: Combined CLI `--system-prompt` with probe template `system_prompt` instead of overwriting the user's system prompt.
+- **Refusal Fallback & Provider Defaults (`G8`, `G17`)**: Fixed `evaluate_verdict` so baseline generic refusal checks always run when no vulnerable rule matched, captured OpenAI `message.refusal`, updated default Anthropic model to `claude-sonnet-4-5`, and bypassed ambient HTTP proxies for loopback URLs (`localhost` / `127.0.0.1` / `[::1]`).
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

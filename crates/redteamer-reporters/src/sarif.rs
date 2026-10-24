@@ -188,4 +188,3 @@ impl ReportExporter for SarifExporter {
         Ok(ctx.findings.len())
     }
 }
-

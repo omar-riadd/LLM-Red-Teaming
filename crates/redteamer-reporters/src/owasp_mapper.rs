@@ -82,7 +82,11 @@ impl CvssLlmComputer {
             OwaspCategory::UnboundedConsumption => ("N", "N", "N", "H", "N", "N", "N"),
         };
 
-        let _multiplier = self.severity_overrides.get(&category).copied().unwrap_or(1.0);
+        let _multiplier = self
+            .severity_overrides
+            .get(&category)
+            .copied()
+            .unwrap_or(1.0);
         CvssVector::new(format!(
             "CVSS:4.0/AV:N/AC:{ac}/AT:{at}/PR:N/UI:N/VC:{vc}/VI:{vi}/VA:{va}/SC:{sc}/SI:{si}/SA:{sa}"
         ))
@@ -97,7 +101,10 @@ impl CvssLlmComputer {
 /// Unknown `probe_name` (lookup returns `None`) is skipped — defensive for
 /// stale records — rather than panicking.
 #[must_use]
-pub fn severity_breakdown<F>(records: &[AttackRecord], mut category_for_probe: F) -> SeverityBreakdown
+pub fn severity_breakdown<F>(
+    records: &[AttackRecord],
+    mut category_for_probe: F,
+) -> SeverityBreakdown
 where
     F: FnMut(&str) -> Option<OwaspCategory>,
 {
@@ -111,7 +118,9 @@ where
         let Some(cat) = category_for_probe(&rec.probe_name) else {
             continue;
         };
-        let score = computer.compute_for_mutation(cat, rec.mutation_type).score();
+        let score = computer
+            .compute_for_mutation(cat, rec.mutation_type)
+            .score();
         match out.highest_score {
             None => out.highest_score = Some(score),
             Some(cur) if score > cur => out.highest_score = Some(score),
@@ -143,10 +152,7 @@ pub fn severity_breakdown_from_map(
 
 /// Pure conversion from `AttackRecord` to `Finding`.
 #[must_use]
-pub fn findings_from_records<F>(
-    records: &[AttackRecord],
-    mut category_for_probe: F,
-) -> Vec<Finding>
+pub fn findings_from_records<F>(records: &[AttackRecord], mut category_for_probe: F) -> Vec<Finding>
 where
     F: FnMut(&str) -> Option<OwaspCategory>,
 {
@@ -270,6 +276,27 @@ pub fn build_report_context(
     let probe_summaries = probe_summaries_from_records(&records, map);
     let findings = findings_from_records_with_map(&records, map);
 
+    let mut total_prompt_tokens = 0u64;
+    let mut total_completion_tokens = 0u64;
+    let mut durations: Vec<u64> = Vec::with_capacity(records.len());
+
+    for rec in &records {
+        if let Some(usage) = rec.token_usage() {
+            total_prompt_tokens = total_prompt_tokens.saturating_add(usage.prompt_tokens);
+            total_completion_tokens =
+                total_completion_tokens.saturating_add(usage.completion_tokens);
+        }
+        durations.push(rec.duration_ms().max(0) as u64);
+    }
+    durations.sort_unstable();
+    let (latency_p50_ms, latency_p95_ms) = if durations.is_empty() {
+        (0, 0)
+    } else {
+        let p50_idx = (durations.len() - 1) * 50 / 100;
+        let p95_idx = (durations.len() - 1) * 95 / 100;
+        (durations[p50_idx], durations[p95_idx])
+    };
+
     ReportContext {
         session_id,
         target_name: target_name.into(),
@@ -278,6 +305,10 @@ pub fn build_report_context(
         probe_summaries,
         findings,
         records,
+        total_prompt_tokens,
+        total_completion_tokens,
+        latency_p50_ms,
+        latency_p95_ms,
     }
 }
 
@@ -316,7 +347,11 @@ mod tests {
                 v.vector
             );
             // Also ensure scoring via CvssVector is non-zero (except edge cases)
-            assert!(v.score() > 0.0, "category {cat:?} scored 0.0 for {}", v.vector);
+            assert!(
+                v.score() > 0.0,
+                "category {cat:?} scored 0.0 for {}",
+                v.vector
+            );
         }
     }
 
@@ -348,10 +383,7 @@ mod tests {
     #[test]
     fn breakdown_one_critical() {
         // ExcessiveAgency => 10.0 Critical
-        let records = vec![make_record(
-            "llm06_excessive_agency",
-            Verdict::Vulnerable,
-        )];
+        let records = vec![make_record("llm06_excessive_agency", Verdict::Vulnerable)];
         let bd = severity_breakdown(&records, |name| match name {
             "llm06_excessive_agency" => Some(OwaspCategory::ExcessiveAgency),
             _ => None,
@@ -428,7 +460,7 @@ mod tests {
             make_record("llm07_system_prompt_leakage", Verdict::Vulnerable), // 6.9 Medium
             make_record("llm10_unbounded_consumption", Verdict::Vulnerable), // 8.7 High
             make_record("llm06_excessive_agency", Verdict::Vulnerable),      // 10.0 Critical
-            make_record("llm01_prompt_injection", Verdict::Resistant),       // ignored (not vulnerable)
+            make_record("llm01_prompt_injection", Verdict::Resistant), // ignored (not vulnerable)
         ];
         let map = std::collections::HashMap::from([
             (
@@ -491,13 +523,14 @@ mod tests {
     fn findings_one_vulnerable_correct_fields() {
         let mut rec = make_record("llm02_sensitive_info_disclosure", Verdict::Vulnerable);
         // give it a detection so detector_name is not the fallback
-        rec.detections.push(redteamer_core::types::DetectionOutcome {
-            detector_name: "string_match_sensitive".to_string(),
-            matched: true,
-            polarity: redteamer_core::types::DetectorPolarity::Vulnerable,
-            confidence: 0.9,
-            rationale: Some("matched".into()),
-        });
+        rec.detections
+            .push(redteamer_core::types::DetectionOutcome {
+                detector_name: "string_match_sensitive".to_string(),
+                matched: true,
+                polarity: redteamer_core::types::DetectorPolarity::Vulnerable,
+                confidence: 0.9,
+                rationale: Some("matched".into()),
+            });
         rec.response = Some("leaked api_key".into());
         let id = rec.id;
         let records = vec![rec];
@@ -572,7 +605,8 @@ mod tests {
     #[test]
     fn compute_for_mutation_emits_ac_h_for_evasion_mutations() {
         let computer = CvssLlmComputer::new();
-        let direct = computer.compute_for_mutation(OwaspCategory::PromptInjection, MutationType::None);
+        let direct =
+            computer.compute_for_mutation(OwaspCategory::PromptInjection, MutationType::None);
         let evasion = computer.compute_for_mutation(
             OwaspCategory::PromptInjection,
             MutationType::ConversationalEscalation,

@@ -213,6 +213,7 @@ mod tests {
         ) -> Result<AdapterResponse> {
             Ok(AdapterResponse {
                 text: self.reply.clone(),
+                tool_calls: Vec::new(),
                 completed: true,
                 metadata: serde_json::json!({}),
             })
@@ -243,4 +244,3 @@ mod tests {
         );
     }
 }
-

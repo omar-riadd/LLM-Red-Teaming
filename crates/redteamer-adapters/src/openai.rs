@@ -3,7 +3,8 @@
 use async_trait::async_trait;
 use redteamer_core::error::{RedTeamerError, Result};
 use redteamer_core::traits::adapter::{
-    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, Role, TargetAdapter,
+    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, Role, TargetAdapter, ToolCall,
+    ToolDefinition,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -45,14 +46,16 @@ impl OpenAiAdapter {
         model: impl Into<String>,
         base_url: impl Into<String>,
     ) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .map_err(|e| RedTeamerError::Adapter {
-                adapter: "openai-chat",
-                message: format!("failed to build HTTP client: {e}"),
-                source: Some(Box::new(e)),
-            })?;
+        let base_url = base_url.into();
+        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(120));
+        if crate::is_loopback_url(&base_url) {
+            builder = builder.no_proxy();
+        }
+        let client = builder.build().map_err(|e| RedTeamerError::Adapter {
+            adapter: "openai-chat",
+            message: format!("failed to build HTTP client: {e}"),
+            source: Some(Box::new(e)),
+        })?;
 
         let model = model.into();
         Ok(Self {
@@ -62,7 +65,7 @@ impl OpenAiAdapter {
                 version: env!("CARGO_PKG_VERSION"),
                 model: Some(model),
             },
-            base_url: base_url.into(),
+            base_url,
             api_key: api_key.into(),
             default_options: GenerationOptions::default(),
             limiter: Mutex::new(RateLimiter::default()),
@@ -127,17 +130,44 @@ impl OpenAiAdapter {
             })?;
 
         let choice = parsed.choices.first();
+        let refusal = choice.and_then(|c| c.message.refusal.clone());
         let text = choice
             .and_then(|c| c.message.content.clone())
+            .filter(|s| !s.is_empty())
+            .or_else(|| refusal.clone())
             .unwrap_or_default();
+
+        let tool_calls = choice
+            .map(|c| {
+                c.message
+                    .tool_calls
+                    .iter()
+                    .map(|tc| ToolCall {
+                        name: tc.function.name.clone(),
+                        arguments: serde_json::from_str(&tc.function.arguments).unwrap_or_else(
+                            |_| serde_json::Value::String(tc.function.arguments.clone()),
+                        ),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut metadata = parsed
+            .usage
+            .map(|u| serde_json::to_value(u).unwrap_or_default())
+            .unwrap_or_else(|| serde_json::json!({}));
+        if let Some(ref_str) = refusal {
+            if let Some(obj) = metadata.as_object_mut() {
+                obj.insert("refusal".to_owned(), serde_json::Value::String(ref_str));
+            }
+        }
 
         Ok(AdapterResponse {
             text,
-            completed: choice.is_some_and(|c| c.finish_reason.as_deref() == Some("stop")),
-            metadata: parsed
-                .usage
-                .map(|u| serde_json::to_value(u).unwrap_or_default())
-                .unwrap_or_default(),
+            tool_calls,
+            completed: choice
+                .is_some_and(|c| matches!(c.finish_reason.as_deref(), Some("stop" | "tool_calls"))),
+            metadata,
         })
     }
 }
@@ -154,10 +184,10 @@ impl TargetAdapter for OpenAiAdapter {
         opts: &GenerationOptions,
     ) -> Result<AdapterResponse> {
         let mut wire_messages = Vec::with_capacity(messages.len() + 1);
-        let sys_prompt = opts
-            .system_prompt
-            .as_deref()
-            .or(self.default_options.system_prompt.as_deref());
+        let sys_prompt = crate::merge_system_prompts(
+            self.default_options.system_prompt.as_deref(),
+            opts.system_prompt.as_deref(),
+        );
         if let Some(sp) = sys_prompt {
             if !messages.first().is_some_and(|m| m.role == Role::System) {
                 wire_messages.push(ChatMessage::system(sp));
@@ -165,12 +195,27 @@ impl TargetAdapter for OpenAiAdapter {
         }
         wire_messages.extend_from_slice(messages);
 
+        let active_tools = if !opts.tools.is_empty() {
+            &opts.tools
+        } else {
+            &self.default_options.tools
+        };
+        let tools: Vec<OpenAiToolIn> = active_tools
+            .iter()
+            .cloned()
+            .map(|function| OpenAiToolIn {
+                tool_type: "function",
+                function,
+            })
+            .collect();
+
         let req = ChatRequest {
             model: self.info.model.clone().unwrap_or_default(),
             messages: wire_messages,
             temperature: opts.temperature.or(self.default_options.temperature),
             max_tokens: opts.max_tokens.or(self.default_options.max_tokens),
             seed: opts.seed.or(self.default_options.seed),
+            tools,
         };
         self.complete(&req).await
     }
@@ -190,6 +235,15 @@ struct ChatRequest {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     seed: Option<u64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<OpenAiToolIn>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiToolIn {
+    #[serde(rename = "type")]
+    tool_type: &'static str,
+    function: ToolDefinition,
 }
 
 #[derive(Debug, Deserialize)]
@@ -210,6 +264,22 @@ struct Choice {
 struct ChatMessageOut {
     #[serde(default)]
     content: Option<String>,
+    #[serde(default)]
+    refusal: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<OpenAiToolCallOut>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiToolCallOut {
+    function: OpenAiFunctionCallOut,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiFunctionCallOut {
+    name: String,
+    #[serde(default)]
+    arguments: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -226,4 +296,3 @@ fn truncate(s: &str, max: usize) -> &str {
         None => s,
     }
 }
-

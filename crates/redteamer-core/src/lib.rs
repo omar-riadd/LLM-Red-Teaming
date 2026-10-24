@@ -24,4 +24,3 @@ pub mod prelude {
     pub use crate::traits::reporter::{ReportContext, ReportExporter, ReportFormat};
     pub use crate::types::*;
 }
-

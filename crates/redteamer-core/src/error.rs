@@ -115,4 +115,3 @@ mod tests {
         assert!(!config_err.is_retryable());
     }
 }
-

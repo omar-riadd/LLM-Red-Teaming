@@ -3,7 +3,8 @@
 use async_trait::async_trait;
 use redteamer_core::error::{RedTeamerError, Result};
 use redteamer_core::traits::adapter::{
-    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, Role, TargetAdapter,
+    AdapterInfo, AdapterResponse, ChatMessage, GenerationOptions, Role, TargetAdapter, ToolCall,
+    ToolDefinition,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -11,7 +12,7 @@ use tokio::sync::Mutex;
 use crate::RateLimiter;
 
 /// Adapter for Ollama's native `/api/chat` endpoint — supports system prompts,
-/// multi-turn conversation history, and generation options (`temperature`,
+/// multi-turn conversation history, tool calling, and generation options (`temperature`,
 /// `num_predict`, `seed`).
 pub struct OllamaAdapter {
     client: reqwest::Client,
@@ -27,14 +28,16 @@ impl OllamaAdapter {
     /// # Errors
     /// Fails if the HTTP client cannot be constructed.
     pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
-            .build()
-            .map_err(|e| RedTeamerError::Adapter {
-                adapter: "ollama-chat",
-                message: format!("failed to build HTTP client: {e}"),
-                source: Some(Box::new(e)),
-            })?;
+        let base_url = base_url.into();
+        let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300));
+        if crate::is_loopback_url(&base_url) {
+            builder = builder.no_proxy();
+        }
+        let client = builder.build().map_err(|e| RedTeamerError::Adapter {
+            adapter: "ollama-chat",
+            message: format!("failed to build HTTP client: {e}"),
+            source: Some(Box::new(e)),
+        })?;
 
         let model = model.into();
         Ok(Self {
@@ -44,7 +47,7 @@ impl OllamaAdapter {
                 version: env!("CARGO_PKG_VERSION"),
                 model: Some(model),
             },
-            base_url: base_url.into(),
+            base_url,
             default_options: GenerationOptions::default(),
             // Local inference is free; only guard against accidental
             // request storms against the dev box.
@@ -78,6 +81,15 @@ struct OllamaChatRequest<'a> {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<OllamaModelOptions>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<OllamaToolIn<'a>>,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaToolIn<'a> {
+    #[serde(rename = "type")]
+    tool_type: &'static str,
+    function: &'a ToolDefinition,
 }
 
 #[derive(Debug, Serialize)]
@@ -108,6 +120,20 @@ struct OllamaChatResponse {
 struct OllamaMessageOut {
     #[serde(default)]
     content: String,
+    #[serde(default)]
+    tool_calls: Vec<OllamaToolCallOut>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaToolCallOut {
+    function: OllamaFunctionCallOut,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaFunctionCallOut {
+    name: String,
+    #[serde(default)]
+    arguments: serde_json::Value,
 }
 
 #[async_trait]
@@ -124,10 +150,10 @@ impl TargetAdapter for OllamaAdapter {
         self.limiter.lock().await.acquire().await;
 
         let mut wire_messages = Vec::with_capacity(messages.len() + 1);
-        let sys_prompt = opts
-            .system_prompt
-            .as_deref()
-            .or(self.default_options.system_prompt.as_deref());
+        let sys_prompt = crate::merge_system_prompts(
+            self.default_options.system_prompt.as_deref(),
+            opts.system_prompt.as_deref(),
+        );
         if let Some(sp) = sys_prompt {
             if !messages.first().is_some_and(|m| m.role == Role::System) {
                 wire_messages.push(ChatMessage::system(sp));
@@ -148,12 +174,26 @@ impl TargetAdapter for OllamaAdapter {
             None
         };
 
+        let active_tools = if !opts.tools.is_empty() {
+            &opts.tools
+        } else {
+            &self.default_options.tools
+        };
+        let tools: Vec<OllamaToolIn<'_>> = active_tools
+            .iter()
+            .map(|function| OllamaToolIn {
+                tool_type: "function",
+                function,
+            })
+            .collect();
+
         let url = format!("{}/api/chat", self.base_url.trim_end_matches('/'));
         let body = OllamaChatRequest {
             model: self.info.model.as_deref().unwrap_or_default(),
             messages: wire_messages,
             stream: false,
             options,
+            tools,
         };
 
         let response = self
@@ -193,15 +233,26 @@ impl TargetAdapter for OllamaAdapter {
                 source: Some(Box::new(e)),
             })?;
 
-        let text = parsed
-            .message
-            .map(|m| m.content)
-            .or(parsed.response)
-            .unwrap_or_default();
+        let mut tool_calls = Vec::new();
+        let text = match parsed.message {
+            Some(m) => {
+                tool_calls = m
+                    .tool_calls
+                    .into_iter()
+                    .map(|tc| ToolCall {
+                        name: tc.function.name,
+                        arguments: tc.function.arguments,
+                    })
+                    .collect();
+                m.content
+            }
+            None => parsed.response.unwrap_or_default(),
+        };
 
         Ok(AdapterResponse {
             completed: parsed.done,
             text,
+            tool_calls,
             metadata: serde_json::json!({
                 "prompt_eval_count": parsed.prompt_eval_count,
                 "eval_count": parsed.eval_count,
@@ -230,4 +281,3 @@ impl TargetAdapter for OllamaAdapter {
         Ok(())
     }
 }
-
