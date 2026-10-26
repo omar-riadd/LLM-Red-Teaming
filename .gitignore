@@ -34,3 +34,11 @@ Thumbs.db
 .idea/
 *.swp
 *~
+
+# Internal session & planning documents
+PLAN*.md
+project-progress.md
+improve.md
+SESSION_HANDOFF.md
+docs/history/
+
